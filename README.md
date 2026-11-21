@@ -47,25 +47,36 @@ workshop-planner/
 └── PLAN.md                    # покроковий план розробки (фази 0–9)
 ```
 
-## Налаштування середовища
+## Налаштування середовища та локальної БД
 
-Скопіюйте `.env.example` у `.env` і заповніть значення змінних:
-
-- `DATABASE_URL` — рядок підключення до PostgreSQL
-- `JWT_SECRET` — секрет для підпису JWT-токенів
-- `PORT` — порт бекенд-сервера (за замовчуванням `3001`)
-- `NODE_ENV` — режим роботи (`development` / `production`)
+1. Скопіюйте `.env.example` у `.env` і за потреби оновіть змінні:
+   - **Основний локальний варіант (PostgreSQL 17 на порту `5432`):**
+     `DATABASE_URL="postgresql://workshop_user:workshop_pass@localhost:5432/workshop?schema=public"`
+   - **Альтернатива через Docker (PostgreSQL 16 на порту `5433`):**
+     `DATABASE_URL="postgresql://postgres:postgres@localhost:5433/workshop?schema=public"` та команда `npm run db:up` (контейнер описано в `docker-compose.yml`).
+   - Інші змінні: `DB_PORT`, `JWT_SECRET`, `PORT` (`3001`), `NODE_ENV`.
+2. Застосуйте міграції та засійте реалістичні демо-дані (якщо використовуєте Docker — спершу виконайте `npm run db:up`):
+   ```bash
+   npm run db:migrate
+   npm run db:seed
+   ```
+3. Демо-акаунти після `db:seed`:
+   - **Власник (`owner`):** `owner@workshop.ua` / `Owner123!`
+   - **Оператор (`operator`):** `operator@workshop.ua` / `Operator123!`
 
 ## Команди запуску
 
 ```bash
 npm run install:all   # встановлення залежностей усіх workspace-пакетів
+npm run db:up         # запуск локального PostgreSQL 16 у Docker (порт 5433)
+npm run db:down       # зупинка контейнера PostgreSQL
+npm run db:generate   # генерація Prisma Client
+npm run db:migrate    # застосування міграцій БД (dev)
+npm run db:seed       # ідемпотентне заповнення БД демо-даними
 npm run dev           # одночасний запуск server (3001) і client (5173)
 npm run lint          # перевірка коду ESLint
 npm run test          # запуск тестів server і client
 npm run build         # збірка клієнта у client/dist
 npm start             # запуск production-сервера
-npm run db:migrate    # застосування міграцій БД (налаштовується у Фазі 2)
-npm run db:seed       # заповнення демо-даними (налаштовується у Фазі 2)
 npm run report        # генерація пояснювальної записки (налаштовується у Фазі 9)
 ```
