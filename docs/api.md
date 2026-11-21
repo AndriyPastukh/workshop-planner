@@ -48,9 +48,9 @@
 | Settings | `PATCH /api/settings` | `owner` | Оновлення глобальних параметрів майстерні |
 | Setup Rules | `GET /api/setup-rules` | auth | Матриця переходів між матеріалами |
 | Setup Rules | `PUT /api/setup-rules`, `DELETE /api/setup-rules/:id` | `owner` | Додавання/оновлення одного правила або масиву правил |
-| Pricing | `POST /api/pricing/preview` | auth | Розрахунок собівартості й ціни без запису в БД |
-| Orders | `GET /api/orders`, `GET /api/orders/:id` | auth | Список замовлень (фільтри `status`, `customerId`, `search`, `isRush`) і деталі |
-| Orders | `POST /api/orders`, `PATCH /api/orders/:id` | auth | Створення замовлення (з авторозрахунком ціни) та редагування |
+| Pricing | `POST /api/pricing/preview` | auth | Повна деталізація собівартості й ціни (без запису в БД, без похибки округлення) |
+| Orders | `GET /api/orders`, `GET /api/orders/:id` | auth | Список замовлень (фільтри `status`, `customerId`, `search`, `isRush`) і деталі з `pricingSummary` |
+| Orders | `POST /api/orders`, `PATCH /api/orders/:id` | auth | Створення замовлення та редагування (`items` у `draft`/`quoted`) із перерахунком розбивки |
 | Orders | `PATCH /api/orders/:id/status` | auth | Валідований перехід статусу + автосписання матеріалів |
 | Orders | `DELETE /api/orders/:id` | `owner` | Видалення замовлення у статусі `draft` або `cancelled` |
 | Planner | `GET /api/schedule` | auth | Поточний план робіт, верстати й агреговані метрики |

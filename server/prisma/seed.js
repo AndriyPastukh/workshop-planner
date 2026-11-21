@@ -861,7 +861,7 @@ async function main() {
           postProcessH: itemSpec.postH,
           isRush: spec.isRush,
         },
-        { pricePerUnit: material.pricePerUnit, wastePct: material.wastePct },
+        { pricePerUnit: material.pricePerUnit, wastePct: material.wastePct, unit: material.unit },
         { hourlyRate: machine.hourlyRate },
         {
           laborRate: settings.laborRate,
@@ -927,7 +927,12 @@ async function main() {
               actualMaterialQty,
               cost: calc.breakdown.cost,
               price: calc.breakdown.price,
-              pricingBreakdown: calc.breakdown,
+              pricingBreakdown: {
+                ...calc.breakdown,
+                raw: calc.raw,
+                appliedRates: calc.appliedRates,
+                inputs: calc.inputs,
+              },
             })
           ),
         },

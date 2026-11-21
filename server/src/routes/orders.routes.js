@@ -46,6 +46,7 @@ const updateOrderSchema = z.object({
   priority: z.number().int().min(1).max(10).optional(),
   isRush: z.boolean().optional(),
   notes: z.string().max(1000).nullable().optional(),
+  items: z.array(orderItemInputSchema).min(1, 'Замовлення має містити хоча б 1 позицію').optional(),
 });
 
 const transitionSchema = z.object({

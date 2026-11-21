@@ -271,6 +271,19 @@ describe('Workshop Planner REST API', () => {
         });
       expect(previewRes.status).toBe(200);
       expect(previewRes.body.totals.price).toBeGreaterThan(previewRes.body.totals.cost);
+      expect(previewRes.body.items[0].breakdown).toMatchObject({
+        material: expect.any(Number),
+        machine: expect.any(Number),
+        setup: expect.any(Number),
+        labor: expect.any(Number),
+        risk: expect.any(Number),
+        overhead: expect.any(Number),
+        margin: expect.any(Number),
+        rush: 0,
+        discount: expect.any(Number),
+        tax: expect.any(Number),
+      });
+      expect(previewRes.body.items[0].inputs.unit).toBe('кг');
       expect(await prisma.order.count()).toBe(beforeCount);
 
       // Create order as draft using createdMaterialId (stock=1.5, minStock=0.6)
@@ -298,6 +311,23 @@ describe('Workshop Planner REST API', () => {
       createdOrderId = orderRes.body.order.id;
       expect(orderRes.body.order.status).toBe('draft');
       expect(orderRes.body.order.code).toMatch(/^WP-2026-\d{3,}$/);
+      expect(orderRes.body.order.pricingSummary.price).toBe(orderRes.body.order.totalPrice);
+      expect(orderRes.body.order.items[0].pricingBreakdown.margin).toBeGreaterThan(0);
+
+      // Edit draft order rush flag -> recalculates breakdown cleanly, then revert before transitions
+      const rushPatch = await request(app)
+        .patch(`/api/orders/${createdOrderId}`)
+        .set('Authorization', `Bearer ${operatorToken}`)
+        .send({ isRush: true });
+      expect(rushPatch.status).toBe(200);
+      expect(rushPatch.body.order.pricingSummary.rush).toBeGreaterThan(0);
+      expect(rushPatch.body.order.totalPrice).toBeGreaterThan(orderRes.body.order.totalPrice);
+
+      const rushRevert = await request(app)
+        .patch(`/api/orders/${createdOrderId}`)
+        .set('Authorization', `Bearer ${operatorToken}`)
+        .send({ isRush: false });
+      expect(rushRevert.status).toBe(200);
 
       // Illegal transition draft -> done (409)
       const illegalRes = await request(app)

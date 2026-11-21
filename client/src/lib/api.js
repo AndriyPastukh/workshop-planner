@@ -95,6 +95,17 @@ export const customersApi = {
 
 export const materialsApi = {
   list: () => apiRequest('/materials'),
+  get: (id) => apiRequest(`/materials/${id}`),
+  receipt: (id, payload) => apiRequest(`/materials/${id}/receipt`, { method: 'POST', body: payload }),
+  adjust: (id, payload) => apiRequest(`/materials/${id}/adjust`, { method: 'POST', body: payload }),
+};
+
+export const templatesApi = {
+  list: () => apiRequest('/templates'),
+};
+
+export const pricingApi = {
+  preview: (payload) => apiRequest('/pricing/preview', { method: 'POST', body: payload }),
 };
 
 export const machinesApi = {

@@ -95,7 +95,7 @@ function priceOrderItems({ items, isRush, settings, materialMap, machineByType }
         postProcessH: item.postProcessH ?? 0,
         isRush,
       },
-      { pricePerUnit: material.pricePerUnit, wastePct: material.wastePct },
+      { pricePerUnit: material.pricePerUnit, wastePct: material.wastePct, unit: material.unit },
       { hourlyRate: machine.hourlyRate },
       {
         laborRate: settings.laborRate,
@@ -115,12 +115,35 @@ function priceOrderItems({ items, isRush, settings, materialMap, machineByType }
       machine,
       machineType,
       setupMin,
+      plannedMaterialQty: Number((item.qty * item.usage * (1 + (material.wastePct ?? 0))).toFixed(3)),
       calc,
     });
   }
 
   const totals = calculateOrderTotals(computed.map((x) => x.calc));
   return { computed, totals };
+}
+
+function buildBreakdownSnapshot(calc) {
+  return {
+    ...calc.breakdown,
+    raw: calc.raw,
+    appliedRates: calc.appliedRates,
+    inputs: calc.inputs,
+  };
+}
+
+function attachOrderPricingSummary(order) {
+  if (!order) {
+    return order;
+  }
+  const pricingSummary = calculateOrderTotals(
+    (order.items ?? []).map((item) => ({
+      raw: item.pricingBreakdown?.raw,
+      breakdown: item.pricingBreakdown ?? { cost: item.cost, price: item.price },
+    }))
+  );
+  return { ...order, pricingSummary };
 }
 
 /**
@@ -143,9 +166,13 @@ export async function previewPricing({ items, isRush = false }) {
       machineType: c.machineType,
       materialId: c.material.id,
       materialCode: c.material.code,
+      materialName: c.material.name,
+      unit: c.material.unit,
       qty: c.calc.qty,
+      plannedMaterialQty: c.plannedMaterialQty,
       breakdown: c.calc.breakdown,
       appliedRates: c.calc.appliedRates,
+      inputs: c.calc.inputs,
     })),
     totals,
   };
@@ -211,7 +238,7 @@ export async function getOrderById(id) {
   if (!order) {
     throw notFound(`Замовлення ${id} не знайдено`);
   }
-  return order;
+  return attachOrderPricingSummary(order);
 }
 
 export async function createOrder(payload, userId = null) {
@@ -266,12 +293,10 @@ export async function createOrder(payload, userId = null) {
             qty: c.input.qty,
             batchShare: c.input.batchShare ?? 1,
             setupMin: c.setupMin,
-            plannedMaterialQty: Number(
-              (c.input.qty * c.input.usage * (1 + (c.material.wastePct ?? 0))).toFixed(3)
-            ),
+            plannedMaterialQty: c.plannedMaterialQty,
             cost: c.calc.breakdown.cost,
             price: c.calc.breakdown.price,
-            pricingBreakdown: c.calc.breakdown,
+            pricingBreakdown: buildBreakdownSnapshot(c.calc),
           })),
         },
       },
@@ -289,12 +314,18 @@ export async function createOrder(payload, userId = null) {
       tx
     );
 
-    return created;
+    return attachOrderPricingSummary(created);
   });
 }
 
 export async function updateOrder(id, patch, userId = null) {
-  const existing = await getOrderById(id);
+  const existing = await prisma.order.findUnique({
+    where: { id },
+    include: ORDER_INCLUDE,
+  });
+  if (!existing) {
+    throw notFound(`Замовлення ${id} не знайдено`);
+  }
   if (existing.status === 'done' || existing.status === 'cancelled') {
     throw conflict(
       `Замовлення у фінальному статусі ${existing.status} не можна редагувати`,
@@ -302,35 +333,127 @@ export async function updateOrder(id, patch, userId = null) {
     );
   }
 
-  const data = {};
-  if (patch.deadline !== undefined) {
-    data.deadline = new Date(patch.deadline);
-  }
-  if (patch.priority !== undefined) {
-    data.priority = patch.priority;
-  }
-  if (patch.notes !== undefined) {
-    data.notes = patch.notes;
-  }
-  if (patch.isRush !== undefined) {
-    data.isRush = patch.isRush;
+  const canEditItems = existing.status === 'draft' || existing.status === 'quoted';
+  if (patch.items !== undefined && !canEditItems) {
+    throw conflict(
+      'Редагувати позиції можна лише для чернетки або прорахунку',
+      'ORDER_ITEMS_LOCKED'
+    );
   }
 
-  const updated = await prisma.order.update({
-    where: { id },
-    data,
-    include: ORDER_INCLUDE,
+  const nextIsRush = patch.isRush !== undefined ? patch.isRush : existing.isRush;
+  const shouldReprice =
+    patch.items !== undefined || (patch.isRush !== undefined && canEditItems);
+
+  let repriced = null;
+  if (shouldReprice) {
+    const itemsSource =
+      patch.items ??
+      existing.items.map((item) => ({
+        id: item.id,
+        title: item.title,
+        machineType: item.machineType,
+        materialId: item.materialId,
+        color: item.color,
+        tool: item.tool,
+        usage: item.usage,
+        runTimeH: item.runTimeH,
+        prepH: item.prepH,
+        postProcessH: item.postProcessH,
+        qty: item.qty,
+        batchShare: item.batchShare,
+        setupMin: item.setupMin,
+      }));
+    const resources = await resolvePricingResources(itemsSource);
+    const { computed, totals } = priceOrderItems({
+      items: itemsSource,
+      isRush: nextIsRush,
+      ...resources,
+    });
+    repriced = { computed, totals, rushSurcharge: resources.settings.rushSurcharge };
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const data = {};
+    if (patch.deadline !== undefined) {
+      data.deadline = new Date(patch.deadline);
+    }
+    if (patch.priority !== undefined) {
+      data.priority = patch.priority;
+    }
+    if (patch.notes !== undefined) {
+      data.notes = patch.notes;
+    }
+    if (patch.isRush !== undefined) {
+      data.isRush = patch.isRush;
+    }
+
+    if (repriced) {
+      data.rushSurcharge = nextIsRush ? repriced.rushSurcharge : 0;
+      data.totalCost = repriced.totals.cost;
+      data.totalPrice = repriced.totals.price;
+
+      if (patch.items !== undefined) {
+        await tx.orderItem.deleteMany({ where: { orderId: id } });
+        data.items = {
+          create: repriced.computed.map((c) => ({
+            title: c.input.title,
+            machineType: c.machineType,
+            materialId: c.material.id,
+            color: c.input.color ?? c.material.color ?? null,
+            tool: c.input.tool ?? null,
+            usage: c.input.usage,
+            runTimeH: c.input.runTimeH,
+            prepH: c.input.prepH ?? 0,
+            postProcessH: c.input.postProcessH ?? 0,
+            qty: c.input.qty,
+            batchShare: c.input.batchShare ?? 1,
+            setupMin: c.setupMin,
+            plannedMaterialQty: c.plannedMaterialQty,
+            cost: c.calc.breakdown.cost,
+            price: c.calc.breakdown.price,
+            pricingBreakdown: buildBreakdownSnapshot(c.calc),
+          })),
+        };
+      } else {
+        for (const c of repriced.computed) {
+          await tx.orderItem.update({
+            where: { id: c.input.id },
+            data: {
+              cost: c.calc.breakdown.cost,
+              price: c.calc.breakdown.price,
+              pricingBreakdown: buildBreakdownSnapshot(c.calc),
+            },
+          });
+        }
+      }
+    }
+
+    const order = await tx.order.update({
+      where: { id },
+      data,
+      include: ORDER_INCLUDE,
+    });
+
+    await logAudit(
+      {
+        userId,
+        action: 'ORDER_UPDATED',
+        entity: 'order',
+        entityId: order.id,
+        payload: {
+          ...patch,
+          itemsUpdated: patch.items !== undefined,
+          totalPrice: order.totalPrice,
+        },
+      },
+      tx
+    );
+
+    return order;
   });
 
-  await logAudit({
-    userId,
-    action: 'ORDER_UPDATED',
-    entity: 'order',
-    entityId: updated.id,
-    payload: patch,
-  });
-
-  return updated;
+  return attachOrderPricingSummary(updated);
 }
 
 /**
@@ -441,7 +564,7 @@ export async function transitionOrderStatus(id, nextStatus, userId = null) {
       tx
     );
 
-    return { order, warnings };
+    return { order: attachOrderPricingSummary(order), warnings };
   });
 }
 

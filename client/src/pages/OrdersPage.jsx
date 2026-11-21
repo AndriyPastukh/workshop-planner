@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Plus, Search, Trash2 } from 'lucide-react';
+import { AlertTriangle, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { DataTable } from '../components/DataTable.jsx';
-import { FormField } from '../components/FormField.jsx';
 import { ConfirmDialog, Modal } from '../components/Modal.jsx';
 import { Money } from '../components/Money.jsx';
+import { OrderFormModal } from '../components/OrderFormModal.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
+import { PricingBreakdownTable } from '../components/PricingBreakdownTable.jsx';
 import { StatCard } from '../components/StatCard.jsx';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { ordersApi } from '../lib/api.js';
@@ -37,7 +38,7 @@ export default function OrdersPage() {
 
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [pendingAction, setPendingAction] = useState(null);
-  const [wizardNoticeOpen, setWizardNoticeOpen] = useState(false);
+  const [formState, setFormState] = useState({ open: false, order: null });
   const [warningsBanner, setWarningsBanner] = useState([]);
   const [actionError, setActionError] = useState('');
 
@@ -286,7 +287,7 @@ export default function OrdersPage() {
         actions={
           <button
             type="button"
-            onClick={() => setWizardNoticeOpen(true)}
+            onClick={() => setFormState({ open: true, order: null })}
             className="inline-flex h-11 items-center gap-2 rounded-full bg-cta px-5 text-sm font-medium text-on-cta transition-opacity hover:opacity-90"
           >
             <Plus className="h-3.5 w-3.5" strokeWidth={2} />
@@ -449,7 +450,7 @@ export default function OrdersPage() {
         open={Boolean(selectedOrder)}
         onClose={() => setSelectedOrder(null)}
         title={selectedOrder ? `Замовлення ${selectedOrder.code}` : ''}
-        maxWidth="max-w-xl"
+        maxWidth="max-w-3xl"
         footer={
           selectedOrder ? (
             <div className="flex w-full flex-wrap items-center justify-between gap-2">
@@ -457,6 +458,20 @@ export default function OrdersPage() {
                 Дедлайн: {formatDateTime(selectedOrder.deadline)}
               </div>
               <div className="flex items-center gap-2">
+                {selectedOrder.status === 'draft' || selectedOrder.status === 'quoted' ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = selectedOrder;
+                      setSelectedOrder(null);
+                      setFormState({ open: true, order: target });
+                    }}
+                    className="inline-flex items-center gap-1 rounded-full border border-line-strong bg-surface px-3.5 py-2 text-xs font-medium text-ink hover:bg-subtle"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    Редагувати
+                  </button>
+                ) : null}
                 {ORDER_STATUS_NEXT_ACTIONS[selectedOrder.status] ? (
                   <button
                     type="button"
@@ -486,7 +501,7 @@ export default function OrdersPage() {
         }
       >
         {selectedOrder ? (
-          <div className="space-y-3">
+          <div className="max-h-[72vh] space-y-3 overflow-y-auto pr-1">
             <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-line bg-subtle/50 px-3 py-2">
               <div>
                 <div className="text-xs font-medium text-ink">{selectedOrder.customer?.name}</div>
@@ -534,18 +549,7 @@ export default function OrdersPage() {
               </table>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <FormField label="Повна собівартість">
-                <div className="rounded border border-line bg-subtle/40 px-2.5 py-1.5">
-                  <Money value={selectedOrder.totalCost} className="font-medium text-ink" />
-                </div>
-              </FormField>
-              <FormField label="Ціна для клієнта">
-                <div className="rounded border border-line bg-subtle/40 px-2.5 py-1.5">
-                  <Money value={selectedOrder.totalPrice} className="font-semibold text-ink" />
-                </div>
-              </FormField>
-            </div>
+            <PricingBreakdownTable items={selectedOrder.items ?? []} />
           </div>
         ) : null}
       </Modal>
@@ -584,28 +588,11 @@ export default function OrdersPage() {
         }}
       />
 
-      {/* Phase 6 wizard preview notice */}
-      <Modal
-        open={wizardNoticeOpen}
-        onClose={() => setWizardNoticeOpen(false)}
-        title="Майстер нового замовлення"
-        maxWidth="max-w-md"
-        footer={
-          <button
-            type="button"
-            onClick={() => setWizardNoticeOpen(false)}
-            className="rounded-full bg-cta px-4 py-2 text-sm font-medium text-on-cta hover:opacity-90"
-          >
-            Зрозуміло
-          </button>
-        }
-      >
-        <p>
-          Повний майстер створення замовлення (вибір клієнта, шаблонів, live-калькулятор собівартості
-          та перевірка черги «чи встигну?») буде підключено у Фазі 6 після затвердження дизайну
-          сторінки замовлень.
-        </p>
-      </Modal>
+      <OrderFormModal
+        open={formState.open}
+        order={formState.order}
+        onClose={() => setFormState({ open: false, order: null })}
+      />
     </div>
   );
 }

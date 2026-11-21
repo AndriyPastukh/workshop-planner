@@ -14,6 +14,7 @@ const itemSchema = z.object({
 const materialSchema = z.object({
   pricePerUnit: z.number().nonnegative(),
   wastePct: z.number().nonnegative().default(0),
+  unit: z.string().trim().min(1).default('од.'),
 });
 
 const machineSchema = z
@@ -43,11 +44,35 @@ const settingsSchema = z.object({
   volumeDiscounts: z.array(volumeDiscountTierSchema).default([]),
 });
 
+const TOTAL_KEYS = [
+  'material',
+  'machine',
+  'setup',
+  'labor',
+  'base',
+  'risk',
+  'withRisk',
+  'overhead',
+  'cost',
+  'margin',
+  'rush',
+  'discount',
+  'priceBeforeTax',
+  'tax',
+  'taxAmount',
+  'price',
+  'estimatedProfit',
+];
+
 /**
- * Round monetary values to 2 decimal places using EPSILON to avoid binary float bias (e.g. 1.005).
+ * Single rounding gate to 0.01 ₴ using EPSILON to avoid binary float bias (e.g. 1.005).
  */
 export function roundMoney(value) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function roundBreakdown(raw) {
+  return Object.fromEntries(Object.entries(raw).map(([key, val]) => [key, roundMoney(val)]));
 }
 
 /**
@@ -85,7 +110,7 @@ export function getVolumeDiscount(qty, volumeDiscounts = []) {
 
 /**
  * Calculate full cost and selling-price breakdown for a single order item (CLAUDE.md §7.1).
- * Intermediate terms keep full floating-point precision; individual output fields are rounded.
+ * Intermediate terms keep full floating-point precision; rounding to 0.01 ₴ runs once at output.
  */
 export function calculateItemCost(item, material, machine, settings) {
   const parsedItem = itemSchema.parse(item);
@@ -111,34 +136,49 @@ export function calculateItemCost(item, material, machine, settings) {
   const base = materialCost + machineCost + setupCost + laborCost;
   // Divide by (1 - failureRate) because scrapped units consume full production resources again.
   const withRisk = base / (1 - parsedSettings.failureRate);
+  const risk = withRisk - base;
   const cost = withRisk * (1 + parsedSettings.overheadPct);
+  const overhead = cost - withRisk;
 
   const rushSurcharge = parsedItem.isRush ? parsedSettings.rushSurcharge : 0;
   const volumeDiscount = getVolumeDiscount(parsedItem.qty, parsedSettings.volumeDiscounts);
 
-  const priceBeforeTax =
-    cost * (1 + parsedSettings.marginPct) * (1 + rushSurcharge) * (1 - volumeDiscount);
-  const taxAmount = priceBeforeTax * parsedSettings.taxPct;
-  const price = priceBeforeTax + taxAmount;
+  const afterMargin = cost * (1 + parsedSettings.marginPct);
+  const margin = afterMargin - cost;
+  const afterRush = afterMargin * (1 + rushSurcharge);
+  const rush = afterRush - afterMargin;
+  const priceBeforeTax = afterRush * (1 - volumeDiscount);
+  const discount = afterRush - priceBeforeTax;
+  const tax = priceBeforeTax * parsedSettings.taxPct;
+  const price = priceBeforeTax + tax;
   const unitPrice = price / parsedItem.qty;
   const estimatedProfit = priceBeforeTax - cost;
 
+  const raw = {
+    material: materialCost,
+    machine: machineCost,
+    setup: setupCost,
+    labor: laborCost,
+    base,
+    risk,
+    withRisk,
+    overhead,
+    cost,
+    margin,
+    rush,
+    discount,
+    priceBeforeTax,
+    tax,
+    taxAmount: tax,
+    price,
+    unitPrice,
+    estimatedProfit,
+  };
+
   return {
     qty: parsedItem.qty,
-    breakdown: {
-      material: roundMoney(materialCost),
-      machine: roundMoney(machineCost),
-      setup: roundMoney(setupCost),
-      labor: roundMoney(laborCost),
-      base: roundMoney(base),
-      withRisk: roundMoney(withRisk),
-      cost: roundMoney(cost),
-      priceBeforeTax: roundMoney(priceBeforeTax),
-      taxAmount: roundMoney(taxAmount),
-      price: roundMoney(price),
-      unitPrice: roundMoney(unitPrice),
-      estimatedProfit: roundMoney(estimatedProfit),
-    },
+    raw,
+    breakdown: roundBreakdown(raw),
     appliedRates: {
       wastePct: parsedMaterial.wastePct,
       failureRate: parsedSettings.failureRate,
@@ -148,35 +188,39 @@ export function calculateItemCost(item, material, machine, settings) {
       volumeDiscount,
       taxPct: parsedSettings.taxPct,
     },
+    inputs: {
+      qty: parsedItem.qty,
+      usage: parsedItem.usage,
+      unit: parsedMaterial.unit,
+      pricePerUnit: parsedMaterial.pricePerUnit,
+      wastePct: parsedMaterial.wastePct,
+      runTimeH: parsedItem.runTimeH,
+      hourlyRate: roundMoney(hourlyRate),
+      setupTimeH: parsedItem.setupTimeH,
+      batchShare: parsedItem.batchShare,
+      prepH: parsedItem.prepH,
+      postProcessH: parsedItem.postProcessH,
+      laborRate: parsedSettings.laborRate,
+    },
   };
 }
 
 /**
- * Aggregate breakdown totals across multiple calculated order item results.
+ * Aggregate breakdown totals across multiple item results without rounding-drift accumulation.
  */
 export function calculateOrderTotals(itemResults = []) {
-  const keys = [
-    'material',
-    'machine',
-    'setup',
-    'labor',
-    'base',
-    'withRisk',
-    'cost',
-    'priceBeforeTax',
-    'taxAmount',
-    'price',
-    'estimatedProfit',
-  ];
-
-  const totals = Object.fromEntries(keys.map((k) => [k, 0]));
+  const rawSums = Object.fromEntries(TOTAL_KEYS.map((k) => [k, 0]));
   for (const res of itemResults) {
-    for (const k of keys) {
-      totals[k] += res.breakdown[k] ?? 0;
+    const source = res?.raw ?? res?.breakdown ?? {};
+    for (const k of TOTAL_KEYS) {
+      rawSums[k] += source[k] ?? 0;
     }
   }
-  for (const k of keys) {
-    totals[k] = roundMoney(totals[k]);
-  }
+
+  const totals = roundBreakdown(rawSums);
+  totals.marginPctOfPrice =
+    rawSums.priceBeforeTax > 0
+      ? Number(((rawSums.estimatedProfit / rawSums.priceBeforeTax) * 100).toFixed(1))
+      : 0;
   return totals;
 }
