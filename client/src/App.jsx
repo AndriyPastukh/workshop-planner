@@ -3,14 +3,16 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell.jsx';
 import { AuthProvider, useAuth } from './lib/auth.jsx';
 import { ThemeProvider } from './lib/theme.jsx';
+import AnalyticsPage from './pages/AnalyticsPage.jsx';
+import CustomersPage from './pages/CustomersPage.jsx';
 import DashboardPage from './pages/DashboardPage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import MachinesPage from './pages/MachinesPage.jsx';
 import MaterialsPage from './pages/MaterialsPage.jsx';
 import OrderDetailsPage from './pages/OrderDetailsPage.jsx';
 import OrdersPage from './pages/OrdersPage.jsx';
-import PlaceholderPage from './pages/PlaceholderPage.jsx';
 import PlannerPage from './pages/PlannerPage.jsx';
+import SettingsPage from './pages/SettingsPage.jsx';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -96,10 +98,7 @@ export default function App() {
                 path="/customers"
                 element={
                   <ProtectedRoute>
-                    <PlaceholderPage
-                      title="Клієнти"
-                      description="Реєстр замовників, історія угод і розрахунок середнього чека буде додано у Фазі 6."
-                    />
+                    <CustomersPage />
                   </ProtectedRoute>
                 }
               />
@@ -107,10 +106,7 @@ export default function App() {
                 path="/analytics"
                 element={
                   <ProtectedRoute>
-                    <PlaceholderPage
-                      title="Аналітика"
-                      description="Прибутковість по замовленнях, завантаженість обладнання та точність прогнозів буде додана у Фазі 6."
-                    />
+                    <AnalyticsPage />
                   </ProtectedRoute>
                 }
               />
@@ -118,10 +114,7 @@ export default function App() {
                 path="/settings"
                 element={
                   <ProtectedRoute>
-                    <PlaceholderPage
-                      title="Налаштування майстерні"
-                      description="Редагування ставок праці, коефіцієнтів ризику, маржі та матриці переналаштувань буде додано у Фазі 6."
-                    />
+                    <SettingsPage />
                   </ProtectedRoute>
                 }
               />
