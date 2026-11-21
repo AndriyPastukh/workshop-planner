@@ -17,7 +17,7 @@ const createMaterialSchema = z.object({
   unit: z.string().trim().min(1).max(20),
   pricePerUnit: z.number().nonnegative(),
   wastePct: z.number().min(0).max(1).default(0.1),
-  stockQty: z.number().default(0),
+  stockQty: z.number().nonnegative().default(0),
   minStockQty: z.number().nonnegative().default(0),
 });
 
@@ -32,9 +32,11 @@ const router = Router();
 router.use(authenticate);
 
 function decorateMaterial(m) {
+  const availableQty = Number((m.stockQty - (m.reservedQty ?? 0)).toFixed(3));
   return {
     ...m,
-    isLowStock: m.stockQty <= m.minStockQty,
+    availableQty,
+    isLowStock: availableQty <= m.minStockQty,
   };
 }
 
@@ -55,7 +57,11 @@ router.get(
       where: { id: req.params.id },
       include: {
         stockMovements: {
-          include: { order: { select: { id: true, code: true } } },
+          include: {
+            order: { select: { id: true, code: true } },
+            orderItem: { select: { id: true, title: true } },
+            user: { select: { id: true, name: true, role: true } },
+          },
           orderBy: { createdAt: 'desc' },
           take: 25,
         },
@@ -116,8 +122,8 @@ router.post(
     }
 
     const nextQty = Number((existing.stockQty + req.body.deltaQty).toFixed(3));
-    if (nextQty < 0 && req.body.deltaQty < 0) {
-      throw badRequest('Залишок після списання не може бути від’ємним при ручному коригуванні');
+    if (nextQty < 0) {
+      throw badRequest('Залишок не може бути від’ємним', 'INSUFFICIENT_STOCK');
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -128,8 +134,10 @@ router.post(
       const movement = await tx.materialStockMovement.create({
         data: {
           materialId: existing.id,
-          deltaQty: req.body.deltaQty,
-          reason: req.body.reason,
+          userId: req.user.id,
+          type: req.body.deltaQty > 0 ? 'receipt' : 'adjustment',
+          qty: req.body.deltaQty,
+          comment: req.body.reason,
         },
       });
       await logAudit(

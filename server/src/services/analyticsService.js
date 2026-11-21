@@ -34,16 +34,21 @@ export async function getDashboardSummary() {
   }
 
   const lowStockMaterials = materials
-    .filter((m) => m.stockQty <= m.minStockQty)
-    .map((m) => ({
-      id: m.id,
-      code: m.code,
-      name: m.name,
-      unit: m.unit,
-      stockQty: m.stockQty,
-      minStockQty: m.minStockQty,
-      isNegative: m.stockQty < 0,
-    }));
+    .map((m) => {
+      const availableQty = Number((m.stockQty - m.reservedQty).toFixed(3));
+      return {
+        id: m.id,
+        code: m.code,
+        name: m.name,
+        unit: m.unit,
+        stockQty: m.stockQty,
+        reservedQty: m.reservedQty,
+        availableQty,
+        minStockQty: m.minStockQty,
+        isNegative: availableQty < 0,
+      };
+    })
+    .filter((m) => m.availableQty <= m.minStockQty);
 
   return {
     ordersByStatus,

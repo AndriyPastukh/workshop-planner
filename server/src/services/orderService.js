@@ -26,7 +26,11 @@ const ORDER_INCLUDE = {
     },
   },
   stockMovements: {
-    include: { material: true },
+    include: {
+      material: true,
+      orderItem: { select: { id: true, title: true } },
+      user: { select: { id: true, name: true } },
+    },
     orderBy: { createdAt: 'desc' },
   },
 };
@@ -262,6 +266,9 @@ export async function createOrder(payload, userId = null) {
             qty: c.input.qty,
             batchShare: c.input.batchShare ?? 1,
             setupMin: c.setupMin,
+            plannedMaterialQty: Number(
+              (c.input.qty * c.input.usage * (1 + (c.material.wastePct ?? 0))).toFixed(3)
+            ),
             cost: c.calc.breakdown.cost,
             price: c.calc.breakdown.price,
             pricingBreakdown: c.calc.breakdown,
@@ -347,44 +354,64 @@ export async function transitionOrderStatus(id, nextStatus, userId = null) {
 
     if (nextStatus === 'in_progress') {
       for (const item of existing.items) {
-        const requiredQty = Number(
-          (item.qty * item.usage * (1 + (item.material.wastePct ?? 0))).toFixed(3)
-        );
+        const requiredQty =
+          item.plannedMaterialQty > 0
+            ? item.plannedMaterialQty
+            : Number((item.qty * item.usage * (1 + (item.material.wastePct ?? 0))).toFixed(3));
+
+        const current = await tx.material.findUnique({ where: { id: item.materialId } });
+        const deductQty = Number(Math.min(current.stockQty, requiredQty).toFixed(3));
+        const nextStockQty = Number((current.stockQty - deductQty).toFixed(3));
+        const shortageQty = Number((requiredQty - deductQty).toFixed(3));
+
         const updatedMaterial = await tx.material.update({
           where: { id: item.materialId },
-          data: { stockQty: { decrement: requiredQty } },
+          data: { stockQty: nextStockQty },
         });
 
-        await tx.materialStockMovement.create({
-          data: {
-            materialId: item.materialId,
-            orderId: existing.id,
-            deltaQty: -requiredQty,
-            reason: `Списано у виробництво (${existing.code})`,
-          },
+        await tx.orderItem.update({
+          where: { id: item.id },
+          data: { actualMaterialQty: deductQty },
         });
 
-        if (updatedMaterial.stockQty < 0) {
+        if (deductQty > 0) {
+          await tx.materialStockMovement.create({
+            data: {
+              materialId: item.materialId,
+              orderId: existing.id,
+              orderItemId: item.id,
+              userId,
+              type: 'consume',
+              qty: deductQty,
+              comment: `Списано у виробництво (${existing.code})`,
+            },
+          });
+        }
+
+        const availableQty = Number((updatedMaterial.stockQty - updatedMaterial.reservedQty).toFixed(3));
+
+        if (shortageQty > 0) {
           warnings.push({
             code: 'INSUFFICIENT_STOCK',
             materialId: updatedMaterial.id,
             materialCode: updatedMaterial.code,
             materialName: updatedMaterial.name,
             unit: updatedMaterial.unit,
-            remainingQty: Number(updatedMaterial.stockQty.toFixed(3)),
+            remainingQty: availableQty,
+            shortageQty,
             minStockQty: updatedMaterial.minStockQty,
-            message: `Нестача матеріалу «${updatedMaterial.name}»: залишок ${updatedMaterial.stockQty.toFixed(2)} ${updatedMaterial.unit}`,
+            message: `Нестача матеріалу «${updatedMaterial.name}»: не вистачає ${shortageQty.toFixed(2)} ${updatedMaterial.unit}`,
           });
-        } else if (updatedMaterial.stockQty <= updatedMaterial.minStockQty) {
+        } else if (availableQty <= updatedMaterial.minStockQty) {
           warnings.push({
             code: 'LOW_STOCK',
             materialId: updatedMaterial.id,
             materialCode: updatedMaterial.code,
             materialName: updatedMaterial.name,
             unit: updatedMaterial.unit,
-            remainingQty: Number(updatedMaterial.stockQty.toFixed(3)),
+            remainingQty: availableQty,
             minStockQty: updatedMaterial.minStockQty,
-            message: `Низький залишок «${updatedMaterial.name}»: ${updatedMaterial.stockQty.toFixed(2)} ${updatedMaterial.unit} (мін. ${updatedMaterial.minStockQty})`,
+            message: `Низький залишок «${updatedMaterial.name}»: доступно ${availableQty.toFixed(2)} ${updatedMaterial.unit} (мін. ${updatedMaterial.minStockQty})`,
           });
         }
       }

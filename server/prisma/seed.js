@@ -29,6 +29,8 @@ function addOffset(anchor, { days = 0, hours = 0, minutes = 0 } = {}) {
   return new Date(anchor.getTime() + totalMs);
 }
 
+const roundQty = (value) => Number(value.toFixed(3));
+
 async function main() {
   const anchor = getAnchorMondayUtc();
 
@@ -110,7 +112,7 @@ async function main() {
     },
   });
 
-  await prisma.user.upsert({
+  const operator = await prisma.user.upsert({
     where: { email: 'operator@workshop.ua' },
     update: { name: 'Олег Коваль', role: 'operator', passwordHash: operatorPasswordHash },
     create: {
@@ -256,7 +258,7 @@ async function main() {
       unit: 'л',
       pricePerUnit: 1680,
       wastePct: 0.14,
-      stockQty: 0.8, // Low stock warning
+      stockQty: 0.5, // Deficit demo: confirmed WP-2026-026 requires 0.821 л > 0.5 л
       minStockQty: 2.0,
     },
     {
@@ -329,10 +331,11 @@ async function main() {
 
   const materialsByCode = {};
   for (const def of materialDefs) {
+    const dataWithZeroReserve = { ...def, reservedQty: 0 };
     const mat = await prisma.material.upsert({
       where: { code: def.code },
-      update: def,
-      create: def,
+      update: dataWithZeroReserve,
+      create: dataWithZeroReserve,
     });
     materialsByCode[def.code] = mat;
   }
@@ -801,7 +804,7 @@ async function main() {
       isRush: false,
       deadline: addOffset(anchor, { days: 2, hours: 4 }),
       items: [
-        { title: 'Корпус електроніки ударостійкий', mat: 'RESIN_TOUGH', qty: 2, usage: 0.09, runTimeH: 1.5, prepH: 0.25, postH: 0.5 },
+        { title: 'Корпус електроніки ударостійкий', mat: 'RESIN_TOUGH', qty: 6, usage: 0.12, runTimeH: 0.5, prepH: 0.25, postH: 0.5 },
       ],
     },
     {
@@ -831,7 +834,13 @@ async function main() {
 
   const activeJobsForScheduler = [];
   const lockedOrderCodes = new Set(['WP-2026-015', 'WP-2026-016']);
+  const overrunDoneCodes = new Set(['WP-2026-001', 'WP-2026-003']);
   const createdOrders = [];
+  const movementRows = [];
+  const reservedByMat = {};
+  const consumedByMat = {};
+  const wasteByMat = {};
+  const adjustByMat = {};
 
   for (const spec of orderSpecs) {
     const customer = customers[spec.customerIdx];
@@ -866,7 +875,24 @@ async function main() {
         }
       );
 
-      itemCalculations.push({ itemSpec, material, machine, calc });
+      const plannedMaterialQty = roundQty(itemSpec.qty * itemSpec.usage * (1 + material.wastePct));
+      let actualMaterialQty = null;
+      if (spec.status === 'done') {
+        actualMaterialQty = overrunDoneCodes.has(spec.code)
+          ? roundQty(plannedMaterialQty * 1.07)
+          : plannedMaterialQty;
+      } else if (spec.status === 'in_progress') {
+        actualMaterialQty = plannedMaterialQty;
+      }
+
+      itemCalculations.push({
+        itemSpec,
+        material,
+        machine,
+        calc,
+        plannedMaterialQty,
+        actualMaterialQty,
+      });
     }
 
     const orderTotals = calculateOrderTotals(itemCalculations.map((x) => x.calc));
@@ -883,23 +909,27 @@ async function main() {
         totalCost: orderTotals.cost,
         totalPrice: orderTotals.price,
         items: {
-          create: itemCalculations.map(({ itemSpec, material, calc }) => ({
-            title: itemSpec.title,
-            machineType: material.machineType,
-            materialId: material.id,
-            color: material.color,
-            tool: material.machineType === 'fdm_3d' ? '0.4mm' : 'std',
-            usage: itemSpec.usage,
-            runTimeH: itemSpec.runTimeH,
-            prepH: itemSpec.prepH,
-            postProcessH: itemSpec.postH,
-            qty: itemSpec.qty,
-            batchShare: 1,
-            setupMin: 15,
-            cost: calc.breakdown.cost,
-            price: calc.breakdown.price,
-            pricingBreakdown: calc.breakdown,
-          })),
+          create: itemCalculations.map(
+            ({ itemSpec, material, calc, plannedMaterialQty, actualMaterialQty }) => ({
+              title: itemSpec.title,
+              machineType: material.machineType,
+              materialId: material.id,
+              color: material.color,
+              tool: material.machineType === 'fdm_3d' ? '0.4mm' : 'std',
+              usage: itemSpec.usage,
+              runTimeH: itemSpec.runTimeH,
+              prepH: itemSpec.prepH,
+              postProcessH: itemSpec.postH,
+              qty: itemSpec.qty,
+              batchShare: 1,
+              setupMin: 15,
+              plannedMaterialQty,
+              actualMaterialQty,
+              cost: calc.breakdown.cost,
+              price: calc.breakdown.price,
+              pricingBreakdown: calc.breakdown,
+            })
+          ),
         },
       },
       include: { items: true },
@@ -907,18 +937,107 @@ async function main() {
 
     createdOrders.push(order);
 
-    // Record stock deductions for orders already started or completed.
-    if (order.status === 'done' || order.status === 'in_progress') {
-      for (const item of order.items) {
-        const mat = materialsByCode[spec.items.find((i) => i.title === item.title).mat];
-        await prisma.materialStockMovement.create({
-          data: {
+    // Record typed stock movements across order lifecycle statuses.
+    for (const item of order.items) {
+      const matCode = spec.items.find((i) => i.title === item.title).mat;
+      const planned = item.plannedMaterialQty;
+
+      if (order.status === 'done') {
+        consumedByMat[matCode] = roundQty((consumedByMat[matCode] ?? 0) + planned);
+        movementRows.push({
+          materialId: item.materialId,
+          orderId: order.id,
+          orderItemId: item.id,
+          userId: operator.id,
+          type: 'consume',
+          qty: planned,
+          comment: `Списано за виконаним замовленням (${order.code})`,
+          createdAt: addOffset(order.deadline, { hours: -6 }),
+        });
+
+        const wasteQty = roundQty((item.actualMaterialQty ?? planned) - planned);
+        if (wasteQty > 0) {
+          wasteByMat[matCode] = roundQty((wasteByMat[matCode] ?? 0) + wasteQty);
+          movementRows.push({
             materialId: item.materialId,
             orderId: order.id,
-            deltaQty: -Number((item.qty * item.usage * (1 + mat.wastePct)).toFixed(3)),
-            reason: order.status === 'done' ? 'Виконане замовлення' : 'Списано у виробництво',
+            orderItemId: item.id,
+            userId: operator.id,
+            type: 'waste',
+            qty: wasteQty,
+            comment: `Технологічні відходи за фактом виконання (${order.code})`,
+            createdAt: order.deadline,
+          });
+        }
+      } else if (order.status === 'in_progress') {
+        consumedByMat[matCode] = roundQty((consumedByMat[matCode] ?? 0) + planned);
+        movementRows.push(
+          {
+            materialId: item.materialId,
+            orderId: order.id,
+            orderItemId: item.id,
+            userId: operator.id,
+            type: 'reserve',
+            qty: planned,
+            comment: `Резерв під замовлення (${order.code})`,
+            createdAt: addOffset(anchor, { days: -1 }),
           },
+          {
+            materialId: item.materialId,
+            orderId: order.id,
+            orderItemId: item.id,
+            userId: operator.id,
+            type: 'release',
+            qty: planned,
+            comment: `Зняття резерву при запуску в роботу (${order.code})`,
+            createdAt: addOffset(anchor, { hours: -2 }),
+          },
+          {
+            materialId: item.materialId,
+            orderId: order.id,
+            orderItemId: item.id,
+            userId: operator.id,
+            type: 'consume',
+            qty: planned,
+            comment: `Списано у виробництво (${order.code})`,
+            createdAt: addOffset(anchor, { hours: -2 }),
+          }
+        );
+      } else if (order.status === 'confirmed') {
+        reservedByMat[matCode] = roundQty((reservedByMat[matCode] ?? 0) + planned);
+        movementRows.push({
+          materialId: item.materialId,
+          orderId: order.id,
+          orderItemId: item.id,
+          userId: operator.id,
+          type: 'reserve',
+          qty: planned,
+          comment: `Резерв під підтверджене замовлення (${order.code})`,
+          createdAt: addOffset(anchor, { days: -1 }),
         });
+      } else if (order.status === 'cancelled' && order.code === 'WP-2026-006') {
+        movementRows.push(
+          {
+            materialId: item.materialId,
+            orderId: order.id,
+            orderItemId: item.id,
+            userId: operator.id,
+            type: 'reserve',
+            qty: planned,
+            comment: `Резерв до скасування замовлення (${order.code})`,
+            createdAt: addOffset(anchor, { days: -2 }),
+          },
+          {
+            materialId: item.materialId,
+            orderId: order.id,
+            orderItemId: item.id,
+            userId: operator.id,
+            type: 'release',
+            qty: planned,
+            comment: `Зняття резерву при скасуванні (${order.code})`,
+            createdAt: addOffset(anchor, { days: -1 }),
+          }
+        );
       }
     }
 
@@ -941,6 +1060,81 @@ async function main() {
       }
     }
   }
+
+  // 8b. Balanced receipts, inventory adjustment, and exact reservedQty sync
+  adjustByMat.PLA = -0.2;
+  movementRows.push({
+    materialId: materialsByCode.PLA.id,
+    userId: owner.id,
+    type: 'adjustment',
+    qty: -0.2,
+    comment: 'Інвентаризація складу: корекція залишку котушки',
+    createdAt: addOffset(anchor, { days: -3 }),
+  });
+
+  const twoReceiptCodes = new Set(['PLA', 'PLY_4']);
+  const lowStockList = [];
+  const deficitList = [];
+
+  for (const def of materialDefs) {
+    const mat = materialsByCode[def.code];
+    const reserved = roundQty(reservedByMat[def.code] ?? 0);
+    const consumed = roundQty(consumedByMat[def.code] ?? 0);
+    const waste = roundQty(wasteByMat[def.code] ?? 0);
+    const adjust = roundQty(adjustByMat[def.code] ?? 0);
+    const totalReceipt = roundQty(mat.stockQty + consumed + waste - adjust);
+
+    if (twoReceiptCodes.has(def.code)) {
+      const firstQty = roundQty(totalReceipt * 0.7);
+      const secondQty = roundQty(totalReceipt - firstQty);
+      movementRows.push(
+        {
+          materialId: mat.id,
+          userId: owner.id,
+          type: 'receipt',
+          qty: firstQty,
+          comment: 'Початковий прихід на склад',
+          createdAt: addOffset(anchor, { days: -14 }),
+        },
+        {
+          materialId: mat.id,
+          userId: owner.id,
+          type: 'receipt',
+          qty: secondQty,
+          comment: 'Поповнення складу від постачальника',
+          createdAt: addOffset(anchor, { days: -4 }),
+        }
+      );
+    } else {
+      movementRows.push({
+        materialId: mat.id,
+        userId: owner.id,
+        type: 'receipt',
+        qty: totalReceipt,
+        comment: 'Початковий прихід на склад',
+        createdAt: addOffset(anchor, { days: -10 }),
+      });
+    }
+
+    await prisma.material.update({
+      where: { id: mat.id },
+      data: { reservedQty: reserved },
+    });
+
+    const available = roundQty(mat.stockQty - reserved);
+    if (available < 0) {
+      deficitList.push(`${mat.code}(avail=${available})`);
+    } else if (available <= mat.minStockQty) {
+      lowStockList.push(`${mat.code}(avail=${available})`);
+    }
+  }
+
+  await prisma.materialStockMovement.createMany({ data: movementRows });
+
+  const movementCountsByType = movementRows.reduce((acc, row) => {
+    acc[row.type] = (acc[row.type] ?? 0) + 1;
+    return acc;
+  }, {});
 
   // 9. Build schedule using domain ATCS & compare strategies
   const domainMachines = Object.values(machinesByType).map((m) => ({
@@ -1022,6 +1216,9 @@ async function main() {
   console.log('Seed completed:');
   console.log(`- Machines: ${Object.keys(machinesByType).length}`);
   console.log(`- Materials: ${Object.keys(materialsByCode).length}`);
+  console.log(`- Stock movements (${movementRows.length}): ${JSON.stringify(movementCountsByType)}`);
+  console.log(`- Low-stock materials: ${lowStockList.join(', ') || 'none'}`);
+  console.log(`- Deficit materials: ${deficitList.join(', ') || 'none'}`);
   console.log(`- Customers: ${customers.length}`);
   console.log(`- Orders: ${createdOrders.length}`);
   console.log(`- Schedule entries (ATCS): ${atcsPlan.entries.length}`);

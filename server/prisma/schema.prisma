@@ -28,15 +28,25 @@ enum OrderStatus {
   cancelled
 }
 
+enum StockMovementType {
+  receipt
+  reserve
+  release
+  consume
+  waste
+  adjustment
+}
+
 model User {
-  id           String     @id @default(cuid())
-  email        String     @unique
-  passwordHash String
-  name         String
-  role         UserRole   @default(operator)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-  auditLogs    AuditLog[]
+  id             String                  @id @default(cuid())
+  email          String                  @unique
+  passwordHash   String
+  name           String
+  role           UserRole                @default(operator)
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  auditLogs      AuditLog[]
+  stockMovements MaterialStockMovement[]
 
   @@map("users")
 }
@@ -70,6 +80,7 @@ model Machine {
   scheduleEntries    ScheduleEntry[]
   maintenanceWindows MaintenanceWindow[]
 
+  @@index([type, isActive])
   @@map("machines")
 }
 
@@ -97,6 +108,7 @@ model Material {
   pricePerUnit   Float
   wastePct       Float                   @default(0.1)
   stockQty       Float                   @default(0)
+  reservedQty    Float                   @default(0)
   minStockQty    Float                   @default(0)
   createdAt      DateTime                @default(now())
   updatedAt      DateTime                @updatedAt
@@ -104,20 +116,31 @@ model Material {
   templates      ProductTemplate[]
   stockMovements MaterialStockMovement[]
 
+  @@index([machineType])
   @@map("materials")
 }
 
 model MaterialStockMovement {
-  id         String   @id @default(cuid())
-  materialId String
-  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
-  orderId    String?
-  order      Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  deltaQty   Float
-  reason     String
-  createdAt  DateTime @default(now())
+  id          String            @id @default(cuid())
+  materialId  String
+  material    Material          @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  orderId     String?
+  order       Order?            @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  orderItemId String?
+  orderItem   OrderItem?        @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+  userId      String?
+  user        User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  type        StockMovementType @default(adjustment)
+  // Positive magnitude for receipt/reserve/release/consume; signed non-zero delta for adjustment/waste (+ overrun deducted from stock, - saving returned)
+  qty         Float
+  comment     String
+  createdAt   DateTime          @default(now())
 
   @@index([materialId, createdAt])
+  @@index([orderId])
+  @@index([orderItemId])
+  @@index([userId])
+  @@index([type])
   @@map("material_stock_movements")
 }
 
@@ -138,6 +161,8 @@ model ProductTemplate {
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
+  @@index([materialId])
+  @@index([machineType])
   @@map("product_templates")
 }
 
@@ -166,30 +191,35 @@ model Order {
 }
 
 model OrderItem {
-  id               String          @id @default(cuid())
-  orderId          String
-  order            Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  title            String
-  machineType      MachineType
-  materialId       String
-  material         Material        @relation(fields: [materialId], references: [id])
-  color            String?
-  tool             String?
-  usage            Float
-  runTimeH         Float
-  prepH            Float           @default(0)
-  postProcessH     Float           @default(0)
-  qty              Int
-  batchShare       Int             @default(1)
-  setupMin         Float           @default(0)
-  cost             Float           @default(0)
-  price            Float           @default(0)
-  pricingBreakdown Json?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-  scheduleEntries  ScheduleEntry[]
+  id                 String                  @id @default(cuid())
+  orderId            String
+  order              Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  title              String
+  machineType        MachineType
+  materialId         String
+  material           Material                @relation(fields: [materialId], references: [id])
+  color              String?
+  tool               String?
+  usage              Float
+  runTimeH           Float
+  prepH              Float                   @default(0)
+  postProcessH       Float                   @default(0)
+  qty                Int
+  batchShare         Int                     @default(1)
+  setupMin           Float                   @default(0)
+  plannedMaterialQty Float                   @default(0)
+  actualMaterialQty  Float?
+  cost               Float                   @default(0)
+  price              Float                   @default(0)
+  pricingBreakdown   Json?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  scheduleEntries    ScheduleEntry[]
+  stockMovements     MaterialStockMovement[]
 
   @@index([orderId])
+  @@index([materialId])
+  @@index([machineType])
   @@map("order_items")
 }
 
@@ -261,6 +291,7 @@ model AuditLog {
   createdAt DateTime @default(now())
 
   @@index([entity, entityId])
+  @@index([userId])
   @@index([createdAt])
   @@map("audit_log")
 }
