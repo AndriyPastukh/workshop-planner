@@ -56,9 +56,10 @@
 | Orders | `PATCH /api/orders/:id/status` | auth | Валідований перехід статусу + автосписання матеріалів |
 | Orders | `DELETE /api/orders/:id` | `owner` | Видалення замовлення у статусі `draft` або `cancelled` |
 | Planner | `GET /api/schedule` | auth | Поточний план робіт, верстати й агреговані метрики |
-| Planner | `POST /api/schedule/rebuild?rule=ATCS` | auth | Перепланування (`FIFO` / `EDD` / `SPT` / `ATCS`) зі збереженням `locked` |
-| Planner | `PATCH /api/schedule/:id` | auth | Переміщення слоту/верстата (контроль `409 SCHEDULE_CONFLICT`) або `locked` |
+| Planner | `POST /api/schedule/rebuild` | auth | Перепланування (`FIFO` / `EDD` / `SPT` / `ATCS`, опція `enableBatchSplit`) зі збереженням `locked` та обходом вікон ТО |
+| Planner | `PATCH /api/schedule/:id` | auth | Переміщення слоту/верстата (`409 SCHEDULE_CONFLICT` або `MAINTENANCE_CONFLICT`) або перемикання `locked` |
 | Planner | `GET /api/schedule/compare` | auth | Порівняння метрик `FIFO`, `EDD`, `SPT`, `ATCS` на поточній черзі |
+| Planner | `POST /api/schedule/what-if` | auth | Сценарне моделювання «Що якщо?» (+віртуальні верстати, правило, $k_1/k_2$, `enableBatchSplit`, тарифи) без запису в БД |
 | Feasibility | `POST /api/quotes/feasibility` | auth | Перевірка «чи встигну?» для нового замовлення (без запису в БД) |
 | Analytics | `GET /api/analytics/dashboard` | auth | KPI для дашборда, дефіцитні матеріали, найближчі дедлайни |
 | Analytics | `GET /api/analytics/summary` | auth | Виручка, собівартість, прибуток по типах верстатів і клієнтах |

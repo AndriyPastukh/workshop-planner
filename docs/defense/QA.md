@@ -109,11 +109,21 @@ _Буде заповнено у Фазі 1._
    - Легкі CSS-анімації (`transform`, `opacity`, `scaleX`) виконуються силами композитора браузера з нульовими витратами на розмір бандла, не затримують кліки та суворо керуються через `@media (prefers-reduced-motion: reduce)`.
 
 6. **Як забезпечується плавне перемикання світлої та темної теми без «блимання»?**
-   - В `index.html` синхронний inline-скрипт застосовує клас `dark` ще до першого рендеру React (усуваючи FOUC при завантаженні), а `ThemeProvider` на момент перемикання тимчасово додає клас `.theme-switching` (`transition: none !important`) на один кадр `requestAnimationFrame`, щоб усі елементи змінювали палітру синхронно без різної швидкості згасання.
+   - У `client/index.html` синхронно підключений `/theme-init.js`, який застосовує клас `dark` ще до першого рендеру React (усуваючи FOUC при завантаженні та відповідаючи політиці CSP `script-src 'self'`), а `ThemeProvider` на момент перемикання тимчасово додає клас `.theme-switching` (`transition: none !important`) на один кадр `requestAnimationFrame`, щоб усі елементи змінювали палітру синхронно без різної швидкості згасання.
 
-7. **Які 9 сторінок реалізовано у клієнтському SPA та як побудована діаграма Ганта й візуалізація аналітики?**
-   - Усі маршрути активні без заглушок: `Dashboard` (`/`), `Orders` (`/orders`), `OrderDetails` (`/orders/:id`), `Planner` (`/planner`), `Machines` (`/machines`), `Materials` (`/materials`), `Customers` (`/customers`), `Analytics` (`/analytics`), `Settings` (`/settings`), плюс `Login` (`/login`). Діаграма Ганта (`PlannerPage`) та шкали завантаження/прибутковості побудовані засобами чистого CSS Grid і CSS-прогрес-барів (`left%` / `width%`, `.bg-setup-hatch`, `.wp-progress-fill`) без важких зовнішніх бібліотек, що спрощує підтримку й виключає конфлікти адаптивності.
+7. **Які сторінки та клієнтські алгоритми реалізовано у SPA (`gantt.js`, `WhatIfPage`)?**
+   - Усі 11 маршрутів активні без заглушок: `Dashboard` (`/`), `Orders` (`/orders`), `OrderDetails` (`/orders/:id`), `Planner` (`/planner`), `WhatIf` (`/what-if`), `Machines` (`/machines`), `Materials` (`/materials`), `Customers` (`/customers`), `Analytics` (`/analytics`), `Settings` (`/settings`), плюс `Login` (`/login`). Діаграма Ганта (`PlannerPage` + `client/src/lib/gantt.js`) обчислює межі осі, позицію «Зараз» (`computeGanttHorizon`), розкладку смуг ТО і робіт (`layoutGanttLane`), миттєво перевіряє конфлікти ручного перенесення до запиту на сервер (`checkManualMoveConflict`) та формує CSV (`buildScheduleCsv`), а симуляція «Що якщо?» (`/what-if`) моделює віртуальні верстати, batch split та зміни тарифів без запису в БД.
 
 ## Фаза 7–9 — Деплой, тестування та записка
 
-_Буде заповнено у Фазах 7–9._
+1. **Чому в production (`NODE_ENV=production`) Express роздає `client/dist`, а не використовується окремий Nginx чи статичний сервіс?**
+   - Поєднання API (`/api/*`) та зібраного React SPA (`client/dist`) в одному Web Service на Render спрощує розгортання безкоштовним тарифом, усуває потребу налаштовувати CORS-домени та гарантує спільну політику безпеки Content-Security-Policy.
+
+2. **Як забезпечено сумісність теми інтерфейсу з жорсткою політикою безпеки CSP (`script-src 'self'`) без мерехтіння (FOUC)?**
+   - Замість inline `<script>` у `client/index.html` підключено зовнішній статичний скрипт `/theme-init.js` з `client/public/`, який виконується синхронно до першого рендеру React і відповідає правилу `script-src 'self'` у `helmet`.
+
+3. **Чому `scripts/seed-prod.js` не перезаписує дані під час кожного деплою?**
+   - Скрипт перевіряє `prisma.user.count()` перед запуском `seed.js`: початкові демо-користувачі, налаштування й матеріали створюються лише на абсолютно порожній базі, тож наступні деплої зберігають реальні замовлення й рухи складу недоторканими.
+
+4. **Як реалізовано друковані форми (КП і Наряд-завдання) та експорт плану без сторонніх бібліотек?**
+   - Використано декларативні CSS-правила `@media print` із класами `.no-print` і `.wp-print-only` у форматі A4 (білий фон і чорний шрифт незалежно від темної теми в UI), а для табличного експорту черги реалізовано `buildScheduleCsv` з UTF-8 BOM (`\uFEFF`) і роздільником `;` для Excel.

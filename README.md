@@ -72,11 +72,18 @@ npm run db:up         # запуск локального PostgreSQL 16 у Docke
 npm run db:down       # зупинка контейнера PostgreSQL
 npm run db:generate   # генерація Prisma Client
 npm run db:migrate    # застосування міграцій БД (dev)
-npm run db:seed       # ідемпотентне заповнення БД демо-даними
+npm run db:seed       # ідемпотентне заповнення БД демо-даними (dev/demo)
+npm run db:seed:prod  # безпечний prod-seed (лише якщо в БД ще немає користувачів)
+npm run benchmark     # відтворюваний бенчмарк FIFO/EDD/SPT/ATCS (20/50/100 робіт)
 npm run dev           # одночасний запуск server (3001) і client (5173)
 npm run lint          # перевірка коду ESLint
 npm run test          # запуск тестів server і client
 npm run build         # збірка клієнта у client/dist
-npm start             # запуск production-сервера
+npm start             # застосування міграцій deploy + запуск production-сервера
+npm run start:prod    # міграції + безпечний prod-seed + запуск production-сервера
 npm run report        # генерація пояснювальної записки (налаштовується у Фазі 9)
 ```
+
+## Деплой
+
+У production (`NODE_ENV=production`) Express-сервер роздає зібраний клієнт із `client/dist` і обслуговує `/api/*` з одного домену. Готовий Blueprint описано в [render.yaml](render.yaml), а детальна покрокова інструкція для **Render** та **Neon Postgres** — у [docs/deploy.md](docs/deploy.md).

@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
@@ -16,14 +19,35 @@ import settingsRouter from './routes/settings.routes.js';
 import setupRulesRouter from './routes/setupRules.routes.js';
 import templatesRouter from './routes/templates.routes.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const CLIENT_DIST_DIR = path.resolve(__dirname, '../..', 'client', 'dist');
+
 /**
  * Create and configure the Express application instance.
  * Exported separately from server startup so Supertest can exercise all routes without binding a port.
  */
-export function createApp({ enableRateLimit = process.env.NODE_ENV !== 'test' } = {}) {
+export function createApp({
+  enableRateLimit = process.env.NODE_ENV !== 'test',
+  serveClient = process.env.NODE_ENV === 'production',
+  clientDistDir = CLIENT_DIST_DIR,
+} = {}) {
   const app = express();
 
-  app.use(helmet());
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+          fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+          imgSrc: ["'self'", 'data:', 'blob:'],
+          connectSrc: ["'self'"],
+          upgradeInsecureRequests: null,
+        },
+      },
+    })
+  );
   app.use(cors());
   app.use(express.json({ limit: '1mb' }));
 
@@ -63,6 +87,17 @@ export function createApp({ enableRateLimit = process.env.NODE_ENV !== 'test' } 
   app.use('/api/schedule', scheduleRouter);
   app.use('/api/quotes', quotesRouter);
   app.use('/api/analytics', analyticsRouter);
+
+  const clientIndexPath = path.join(clientDistDir, 'index.html');
+  if (serveClient && fs.existsSync(clientIndexPath)) {
+    app.use(express.static(clientDistDir));
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api')) {
+        return next();
+      }
+      return res.sendFile(clientIndexPath);
+    });
+  }
 
   app.use(notFoundHandler);
   app.use(errorHandler);

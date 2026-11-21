@@ -10,17 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
-    <script>
-      (function () {
-        try {
-          if (localStorage.getItem('wp_theme') === 'dark') {
-            document.documentElement.classList.add('dark');
-          }
-        } catch {
-          // Ignore storage restrictions
-        }
-      })();
-    </script>
+    <script src="/theme-init.js"></script>
   </head>
   <body class="bg-canvas text-ink antialiased">
     <div id="root"></div>
