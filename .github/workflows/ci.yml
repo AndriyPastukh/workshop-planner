@@ -10,6 +10,26 @@ jobs:
   ci:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: workshop_user
+          POSTGRES_PASSWORD: workshop_pass
+          POSTGRES_DB: workshop
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U workshop_user -d workshop"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      DATABASE_URL: postgresql://workshop_user:workshop_pass@localhost:5432/workshop?schema=public
+      JWT_SECRET: ci-test-jwt-secret-key-2026
+      NODE_ENV: test
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -28,6 +48,12 @@ jobs:
 
       - name: Run linter
         run: npm run lint
+
+      - name: Apply database migrations
+        run: npm run db:migrate:deploy
+
+      - name: Seed database
+        run: npm run db:seed
 
       - name: Run tests
         run: npm run test
