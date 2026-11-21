@@ -391,4 +391,67 @@ describe('scheduler domain', () => {
       true
     );
   });
+
+  it('blocks machine maintenance windows and jumps jobs cleanly past them', () => {
+    const machinesWithMaintenance = [
+      {
+        id: 'm1',
+        type: 'fdm_3d',
+        calendar: DEFAULT_CALENDAR,
+        maintenanceWindows: [
+          {
+            id: 'mw-1',
+            title: 'Калібрування столу',
+            start: '2026-05-04T10:00:00.000Z',
+            end: '2026-05-04T12:00:00.000Z',
+          },
+        ],
+      },
+    ];
+
+    const jobs = [
+      {
+        id: 'SHORT_BEFORE',
+        orderId: 'OM1',
+        machineType: 'fdm_3d',
+        material: 'PLA',
+        processingTimeMin: 30,
+        deadline: '2026-05-04T16:00:00.000Z',
+        priority: 2,
+      },
+      {
+        id: 'LONG_AFTER',
+        orderId: 'OM2',
+        machineType: 'fdm_3d',
+        material: 'PLA',
+        processingTimeMin: 90,
+        deadline: '2026-05-04T17:00:00.000Z',
+        priority: 1,
+      },
+    ];
+
+    const res = schedule(jobs, machinesWithMaintenance, EXAMPLE_3_RULES, {
+      rule: 'FIFO',
+      startTime: '2026-05-04T09:00:00.000Z',
+    });
+
+    const mwStart = Date.parse('2026-05-04T10:00:00.000Z');
+    const mwEnd = Date.parse('2026-05-04T12:00:00.000Z');
+
+    for (const entry of res.entries) {
+      const eStart = Date.parse(entry.setupStart);
+      const eEnd = Date.parse(entry.end);
+      expect(eStart < mwEnd && eEnd > mwStart).toBe(false);
+    }
+
+    const first = res.entries.find((e) => e.jobId === 'SHORT_BEFORE');
+    const second = res.entries.find((e) => e.jobId === 'LONG_AFTER');
+    // SHORT_BEFORE fits [09:00..09:50] cleanly before [10:00..12:00] maintenance
+    expect(first.setupStart).toBe('2026-05-04T09:00:00.000Z');
+    expect(first.end).toBe('2026-05-04T09:50:00.000Z');
+    // LONG_AFTER starts after maintenance at 12:00 and receives post-maintenance warmup
+    expect(second.setupStart).toBe('2026-05-04T12:00:00.000Z');
+    expect(second.setupMin).toBe(20);
+    expect(second.end).toBe('2026-05-04T13:50:00.000Z');
+  });
 });

@@ -7,6 +7,7 @@ import {
   compareStrategies,
   schedule,
   setupTime,
+  simulateWhatIf,
   snapToWorkTime,
   toTimestampMs,
   workMinutesBetween,
@@ -24,6 +25,7 @@ function mapOrderItemToDomainJob(item, order) {
     material: item.material.code,
     color: item.color ?? item.material.color ?? null,
     tool: item.tool ?? null,
+    qty: item.qty,
     processingTimeMin: Math.max(15, Math.round(item.qty * item.runTimeH * 60)),
     deadline: order.deadline.toISOString(),
     priority: order.priority,
@@ -57,16 +59,25 @@ async function loadPlanningContext() {
     id: m.id,
     name: m.name,
     type: m.type,
+    hourlyRate: m.hourlyRate,
+    depreciationPerH: m.depreciationPerH,
+    powerKw: m.powerKw,
     calendar: m.calendar ?? DEFAULT_CALENDAR,
     maintenanceWindows: m.maintenanceWindows ?? [],
   }));
 
   const activeJobs = [];
+  const activeItems = [];
+  const materialsById = new Map();
   const orderCodeByOrderId = new Map();
   for (const order of orders) {
     orderCodeByOrderId.set(order.id, order.code);
     for (const item of order.items) {
       activeJobs.push(mapOrderItemToDomainJob(item, order));
+      activeItems.push({ item, order });
+      if (item.material) {
+        materialsById.set(item.material.id, item.material);
+      }
     }
   }
 
@@ -87,6 +98,8 @@ async function loadPlanningContext() {
     machines,
     domainMachines,
     activeJobs,
+    activeItems,
+    materialsById,
     orderCodeByOrderId,
     settings,
     rulesConfig,
@@ -197,7 +210,7 @@ export async function getSchedule() {
  * Rebuild the active production queue using a chosen dispatching rule while preserving locked entries.
  */
 export async function rebuildSchedule(
-  { rule = 'ATCS', k1, k2, startTime } = {},
+  { rule = 'ATCS', k1, k2, startTime, enableBatchSplit = false } = {},
   userId = null
 ) {
   const ctx = await loadPlanningContext();
@@ -213,6 +226,7 @@ export async function rebuildSchedule(
     k2: effectiveK2,
     startTime: effectiveStartMs,
     locked: ctx.lockedWindows,
+    enableBatchSplit: Boolean(enableBatchSplit),
   });
 
   const lockedJobIds = new Set(ctx.lockedWindows.map((l) => l.jobId));
@@ -226,10 +240,12 @@ export async function rebuildSchedule(
     });
 
     const toCreate = plan.entries
-      .filter((entry) => !lockedJobIds.has(entry.jobId))
+      .filter((entry) => !lockedJobIds.has(entry.parentJobId ?? entry.jobId))
       .map((entry) => ({
-        orderItemId: entry.jobId,
+        orderItemId: entry.parentJobId ?? entry.jobId,
         machineId: entry.machineId,
+        batchIndex: entry.batchIndex ?? 1,
+        batchQty: entry.batchQty ?? null,
         setupStart: new Date(entry.setupStart),
         setupEnd: new Date(entry.setupEnd),
         start: new Date(entry.start),
@@ -255,6 +271,7 @@ export async function rebuildSchedule(
           rule,
           k1: effectiveK1,
           k2: effectiveK2,
+          enableBatchSplit: Boolean(enableBatchSplit),
           scheduledJobs: plan.entries.length,
           lateCount: plan.metrics.lateCount,
           totalSetupMin: plan.metrics.totalSetupMin,
@@ -268,19 +285,20 @@ export async function rebuildSchedule(
   return {
     ...persisted,
     rule,
+    enableBatchSplit: Boolean(enableBatchSplit),
     unscheduled: plan.unscheduled,
   };
 }
 
 /**
  * Manually move a schedule entry to another slot/machine or toggle its locked state.
- * Rejects overlapping intervals on the target machine with 409 SCHEDULE_CONFLICT.
+ * Rejects overlapping intervals or maintenance windows on the target machine with 409 conflict.
  */
 export async function updateScheduleEntry(entryId, patch, userId = null) {
   const existing = await prisma.scheduleEntry.findUnique({
     where: { id: entryId },
     include: {
-      machine: true,
+      machine: { include: { maintenanceWindows: { orderBy: { start: 'asc' } } } },
       orderItem: { include: { material: true, order: true } },
     },
   });
@@ -291,7 +309,10 @@ export async function updateScheduleEntry(entryId, patch, userId = null) {
 
   let targetMachine = existing.machine;
   if (patch.machineId && patch.machineId !== existing.machineId) {
-    targetMachine = await prisma.machine.findUnique({ where: { id: patch.machineId } });
+    targetMachine = await prisma.machine.findUnique({
+      where: { id: patch.machineId },
+      include: { maintenanceWindows: { orderBy: { start: 'asc' } } },
+    });
     if (!targetMachine || !targetMachine.isActive) {
       throw notFound(`Верстат ${patch.machineId} не знайдено або неактивний`);
     }
@@ -346,6 +367,22 @@ export async function updateScheduleEntry(entryId, patch, userId = null) {
     const newSetupStartMs = newStartMs - newSetupMin * MIN_MS;
     const newSetupEndMs = newStartMs;
     const newEndMs = advanceWorkTime(newStartMs, existing.processingMin, calendar);
+
+    const maintConflict = (targetMachine.maintenanceWindows ?? []).find(
+      (w) => newSetupStartMs < w.end.getTime() && newEndMs > w.start.getTime()
+    );
+    if (maintConflict) {
+      throw conflict(
+        'Обраний інтервал перетинається з вікном технічного обслуговування верстата',
+        'MAINTENANCE_CONFLICT',
+        {
+          maintenanceWindowId: maintConflict.id,
+          title: maintConflict.title,
+          start: maintConflict.start.toISOString(),
+          end: maintConflict.end.toISOString(),
+        }
+      );
+    }
 
     const overlap = siblingEntries.find(
       (other) => newSetupStartMs < other.end.getTime() && newEndMs > other.setupStart.getTime()
@@ -499,4 +536,26 @@ export async function evaluateFeasibility({ deadline, priority, items, rule, k1,
     shiftedOrders: result.shiftedOrders.map(enrichOrderCode),
     newlyDelayedOrders: result.newlyDelayedOrders.map(enrichOrderCode),
   };
+}
+
+/**
+ * Run a non-mutating What-If capacity/algorithm/tariff simulation against the live active queue.
+ */
+export async function runWhatIfSimulation(scenario = {}) {
+  const ctx = await loadPlanningContext();
+  const effectiveStartMs = scenario.startTime
+    ? toTimestampMs(scenario.startTime)
+    : getDefaultStartTimeMs(ctx.lockedWindows);
+
+  return simulateWhatIf({
+    jobs: ctx.activeJobs,
+    machines: ctx.domainMachines,
+    rules: ctx.rulesConfig,
+    items: ctx.activeItems,
+    materialsById: ctx.materialsById,
+    baseSettings: ctx.settings,
+    locked: ctx.lockedWindows,
+    startTime: effectiveStartMs,
+    scenario,
+  });
 }

@@ -7,16 +7,22 @@ import {
   compareScheduleStrategies,
   getSchedule,
   rebuildSchedule,
+  runWhatIfSimulation,
   updateScheduleEntry,
 } from '../services/plannerService.js';
 
 const ruleEnum = z.enum(['FIFO', 'EDD', 'SPT', 'ATCS']);
+
+const booleanQuery = z
+  .union([z.boolean(), z.enum(['true', 'false', '1', '0'])])
+  .transform((val) => val === true || val === 'true' || val === '1');
 
 const rebuildQuerySchema = z.object({
   rule: ruleEnum.optional(),
   k1: z.coerce.number().positive().optional(),
   k2: z.coerce.number().positive().optional(),
   startTime: z.string().optional(),
+  enableBatchSplit: booleanQuery.optional(),
 });
 
 const rebuildBodySchema = z
@@ -25,8 +31,30 @@ const rebuildBodySchema = z
     k1: z.number().positive().optional(),
     k2: z.number().positive().optional(),
     startTime: z.string().optional(),
+    enableBatchSplit: z.boolean().optional(),
   })
   .optional();
+
+const whatIfBodySchema = z.object({
+  rule: ruleEnum.optional(),
+  k1: z.number().positive().optional(),
+  k2: z.number().positive().optional(),
+  startTime: z.string().optional(),
+  enableBatchSplit: z.boolean().optional(),
+  ignoreLocks: z.boolean().optional(),
+  extraMachines: z
+    .object({
+      fdm_3d: z.number().int().min(0).max(5).optional(),
+      resin_3d: z.number().int().min(0).max(5).optional(),
+      laser: z.number().int().min(0).max(5).optional(),
+      cnc_wood: z.number().int().min(0).max(5).optional(),
+    })
+    .optional(),
+  marginPct: z.number().min(0).max(5).optional(),
+  laborRate: z.number().min(0).max(50000).optional(),
+  electricityRatePerKwh: z.number().min(0).max(500).optional(),
+  rushSurcharge: z.number().min(0).max(5).optional(),
+});
 
 const compareQuerySchema = z.object({
   k1: z.coerce.number().positive().optional(),
@@ -68,6 +96,7 @@ router.post(
         k1: q.k1 ?? b.k1,
         k2: q.k2 ?? b.k2,
         startTime: q.startTime ?? b.startTime,
+        enableBatchSplit: q.enableBatchSplit ?? b.enableBatchSplit ?? false,
       },
       req.user.id
     );
@@ -80,6 +109,15 @@ router.get(
   validate({ query: compareQuerySchema }),
   asyncHandler(async (req, res) => {
     const result = await compareScheduleStrategies(req.validatedQuery ?? {});
+    res.json(result);
+  })
+);
+
+router.post(
+  '/what-if',
+  validate({ body: whatIfBodySchema }),
+  asyncHandler(async (req, res) => {
+    const result = await runWhatIfSimulation(req.body ?? {});
     res.json(result);
   })
 );

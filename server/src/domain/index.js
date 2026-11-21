@@ -24,5 +24,7 @@ export {
   isMachineEligible,
   schedule,
 } from './scheduler.js';
+export { expandJobsWithBatchSplit, splitJobIntoBatches } from './batchSplit.js';
 export { checkFeasibility } from './feasibility.js';
 export { forecastMaterialShortages } from './stockForecast.js';
+export { simulateWhatIf } from './whatIf.js';

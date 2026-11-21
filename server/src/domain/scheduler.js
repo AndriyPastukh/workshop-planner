@@ -1,3 +1,4 @@
+import { expandJobsWithBatchSplit } from './batchSplit.js';
 import {
   MIN_MS,
   advanceWorkTime,
@@ -100,33 +101,42 @@ export function computeAtcsIndex({
   return (w / Math.max(p, 1e-6)) * urgencyTerm * setupTerm;
 }
 
-function findPrevOccupiedInterval(candidateStartMs, occupiedIntervals) {
+function findPrevJobInterval(candidateStartMs, occupiedIntervals) {
   let prev = null;
+  let hadMaintenanceAfterPrev = false;
   for (const occ of occupiedIntervals) {
     if (occ.blockEndMs <= candidateStartMs) {
-      prev = occ;
+      if (occ.isMaintenance) {
+        hadMaintenanceAfterPrev = true;
+      } else {
+        prev = occ;
+        hadMaintenanceAfterPrev = false;
+      }
     } else {
       break;
     }
   }
-  return prev;
+  return { prevOcc: prev, hadMaintenanceAfterPrev };
 }
 
 /**
- * Place a job's setup + processing window on a machine without overlapping occupied (locked) intervals.
+ * Place a job's setup + processing window on a machine without overlapping occupied (locked or maintenance) intervals.
  */
 export function findNextFreeSlot({ earliestMs, job, machine, rules, occupiedIntervals }) {
   const p = getProcessingTimeMin(job, machine);
   let candidateStartMs = snapToWorkTime(earliestMs, machine.calendar);
 
   // Occupied intervals are kept sorted chronologically by blockStartMs.
-  while (true) {
-    const prevOcc = findPrevOccupiedInterval(candidateStartMs, occupiedIntervals);
+  for (let iter = 0; iter < 10000; iter += 1) {
+    const { prevOcc, hadMaintenanceAfterPrev } = findPrevJobInterval(
+      candidateStartMs,
+      occupiedIntervals
+    );
     const effectivePrev = prevOcc ? prevOcc.jobSnapshot : null;
     const isNewShift =
       prevOcc != null &&
-      machine.calendar != null &&
-      isDifferentWorkDay(prevOcc.endMs, candidateStartMs);
+      (hadMaintenanceAfterPrev ||
+        (machine.calendar != null && isDifferentWorkDay(prevOcc.endMs, candidateStartMs)));
 
     const setupMin = setupTime(effectivePrev, job, machine, rules, { isNewShift });
     const setupStartMs = candidateStartMs;
@@ -143,9 +153,12 @@ export function findNextFreeSlot({ earliestMs, job, machine, rules, occupiedInte
       return { setupStartMs, setupEndMs, startMs, endMs, setupMin, processingMin: p };
     }
 
-    // Jump past the conflicting locked/occupied interval and recompute setup relative to it.
-    candidateStartMs = snapToWorkTime(conflict.blockEndMs, machine.calendar);
+    // Jump past the conflicting locked/maintenance interval and recompute setup relative to it.
+    const jumpedMs = snapToWorkTime(conflict.blockEndMs, machine.calendar);
+    candidateStartMs = jumpedMs > candidateStartMs ? jumpedMs : candidateStartMs + MIN_MS;
   }
+
+  throw new Error(`Could not place job ${job.id} around occupied intervals on machine ${machine.id}`);
 }
 
 function buildEntryRecord({ job, machine, slot, locked }) {
@@ -155,6 +168,9 @@ function buildEntryRecord({ job, machine, slot, locked }) {
 
   return {
     jobId: job.id,
+    parentJobId: job.parentJobId ?? job.id,
+    batchIndex: job.batchIndex ?? 1,
+    batchQty: job.batchQty ?? null,
     orderId: job.orderId ?? null,
     machineId: machine.id,
     machineType: machine.type,
@@ -343,11 +359,33 @@ export function schedule(jobs = [], machines = [], rules = DEFAULT_SETUP_RULES, 
 
   const k1 = options.k1 ?? 2;
   const k2 = options.k2 ?? 0.5;
+  const enableBatchSplit = Boolean(options.enableBatchSplit);
+  const minSplitQty = options.minSplitQty ?? 4;
+  const minBatchQty = options.minBatchQty ?? 2;
   const startTimeMs = toTimestampMs(options.startTime ?? Date.now());
 
   const machineList = machines.map((m) => ({ ...m }));
   const occupiedByMachine = new Map(machineList.map((m) => [m.id, []]));
   const hasLockedByMachine = new Set();
+
+  // Pre-occupy scheduled maintenance windows so neither setup nor processing crosses them.
+  for (const machine of machineList) {
+    const occupied = occupiedByMachine.get(machine.id);
+    for (const win of machine.maintenanceWindows ?? []) {
+      const wStartMs = toTimestampMs(win.start);
+      const wEndMs = toTimestampMs(win.end);
+      if (wEndMs > wStartMs) {
+        hasLockedByMachine.add(machine.id);
+        insertOccupiedSorted(occupied, {
+          blockStartMs: wStartMs,
+          blockEndMs: wEndMs,
+          endMs: wEndMs,
+          isMaintenance: true,
+          jobSnapshot: null,
+        });
+      }
+    }
+  }
 
   const normalizedJobs = jobs.map((job, index) => ({
     ...job,
@@ -385,6 +423,7 @@ export function schedule(jobs = [], machines = [], rules = DEFAULT_SETUP_RULES, 
         blockStartMs: setupStartMs,
         blockEndMs: endMs,
         endMs,
+        isMaintenance: false,
         jobSnapshot: job,
       });
     } else {
@@ -392,13 +431,17 @@ export function schedule(jobs = [], machines = [], rules = DEFAULT_SETUP_RULES, 
     }
   }
 
+  const schedulableJobs = enableBatchSplit
+    ? expandJobsWithBatchSplit(remaining, machineList, { minSplitQty, minBatchQty })
+    : remaining;
+
   const unscheduled = [];
-  const pBar = computeAverageProcessingMin(remaining, machineList);
-  const sBar = computeAverageSetupMin(remaining, machineList, rules);
+  const pBar = computeAverageProcessingMin(schedulableJobs, machineList);
+  const sBar = computeAverageSetupMin(schedulableJobs, machineList, rules);
 
   // Filter out jobs that have no eligible machine up front.
   let activeQueue = [];
-  for (const job of remaining) {
+  for (const job of schedulableJobs) {
     if (machineList.some((m) => isMachineEligible(job, m))) {
       activeQueue.push(job);
     } else {
@@ -472,6 +515,7 @@ export function schedule(jobs = [], machines = [], rules = DEFAULT_SETUP_RULES, 
       blockStartMs: chosen.slot.setupStartMs,
       blockEndMs: chosen.slot.endMs,
       endMs: chosen.slot.endMs,
+      isMaintenance: false,
       jobSnapshot: chosen.job,
     };
     if (chosenHasLocked) {

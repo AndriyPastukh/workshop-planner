@@ -443,6 +443,70 @@ describe('Workshop Planner REST API', () => {
         .send({ locked: false });
       expect(unlockRes.status).toBe(200);
 
+      // Maintenance conflict check on PATCH /api/schedule/:id -> 409 MAINTENANCE_CONFLICT
+      const tempMaintRes = await request(app)
+        .post(`/api/machines/${fdmMachine.id}/maintenance`)
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .send({
+          title: 'Тимчасове ТО для тесту API',
+          start: '2026-12-10T09:30:00.000Z',
+          end: '2026-12-10T11:30:00.000Z',
+        });
+      expect(tempMaintRes.status).toBe(201);
+      const maintConflictMove = await request(app)
+        .patch(`/api/schedule/${lastEntry.id}`)
+        .set('Authorization', `Bearer ${operatorToken}`)
+        .send({ start: '2026-12-10T10:00:00.000Z' });
+      expect(maintConflictMove.status).toBe(409);
+      expect(maintConflictMove.body.error.code).toBe('MAINTENANCE_CONFLICT');
+      const cleanupMaint = await request(app)
+        .delete(
+          `/api/machines/${fdmMachine.id}/maintenance/${tempMaintRes.body.maintenanceWindow.id}`
+        )
+        .set('Authorization', `Bearer ${ownerToken}`);
+      expect(cleanupMaint.status).toBe(200);
+
+      // What-If read-only simulation
+      const whatIfBeforeCount = await prisma.scheduleEntry.count();
+      const whatIfRes = await request(app)
+        .post('/api/schedule/what-if')
+        .set('Authorization', `Bearer ${operatorToken}`)
+        .send({
+          extraMachines: { fdm_3d: 1 },
+          enableBatchSplit: true,
+          marginPct: 0.35,
+        });
+      expect(whatIfRes.status).toBe(200);
+      expect(whatIfRes.body.simulated.machineCount).toBe(whatIfRes.body.baseline.machineCount + 1);
+      expect(whatIfRes.body.delta.estimatedProfit).toBeGreaterThan(0);
+      expect(await prisma.scheduleEntry.count()).toBe(whatIfBeforeCount);
+
+      // Rebuild with enableBatchSplit: true using temporarily activated 2nd FDM machine
+      if (createdMachineId) {
+        await request(app)
+          .patch(`/api/machines/${createdMachineId}`)
+          .set('Authorization', `Bearer ${ownerToken}`)
+          .send({ isActive: true });
+
+        const splitRebuild = await request(app)
+          .post('/api/schedule/rebuild?rule=ATCS&enableBatchSplit=true')
+          .set('Authorization', `Bearer ${ownerToken}`);
+        expect(splitRebuild.status).toBe(200);
+        expect(splitRebuild.body.enableBatchSplit).toBe(true);
+        expect(splitRebuild.body.entries.some((e) => e.batchQty != null)).toBe(true);
+
+        // Restore deactivated test machine & unsplit schedule
+        await request(app)
+          .patch(`/api/machines/${createdMachineId}`)
+          .set('Authorization', `Bearer ${ownerToken}`)
+          .send({ isActive: false });
+
+        const restoreRebuild = await request(app)
+          .post('/api/schedule/rebuild?rule=ATCS&enableBatchSplit=false')
+          .set('Authorization', `Bearer ${ownerToken}`);
+        expect(restoreRebuild.status).toBe(200);
+      }
+
       // Analytics endpoints
       const dashRes = await request(app)
         .get('/api/analytics/dashboard')
