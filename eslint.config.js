@@ -40,6 +40,8 @@ export default [
       'scripts/**/*.js',
       '*.config.js',
       'client/vite.config.js',
+      'client/tailwind.config.js',
+      'client/postcss.config.js',
       'server/vitest.config.js',
     ],
     languageOptions: {
