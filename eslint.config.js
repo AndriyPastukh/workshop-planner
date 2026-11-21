@@ -34,7 +34,7 @@ export default [
     },
   },
   {
-    files: ['server/src/**/*.js', '*.config.js', 'client/vite.config.js'],
+    files: ['server/src/**/*.js', '*.config.js', 'client/vite.config.js', 'server/vitest.config.js'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
