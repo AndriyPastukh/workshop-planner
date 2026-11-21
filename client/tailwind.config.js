@@ -8,6 +8,8 @@ export default {
         canvas: 'var(--bg-canvas)',
         surface: 'var(--bg-surface)',
         subtle: 'var(--bg-subtle)',
+        cta: 'var(--cta)',
+        'on-cta': 'var(--on-cta)',
         ink: {
           DEFAULT: 'var(--text-ink)',
           secondary: 'var(--text-secondary)',
@@ -24,13 +26,16 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['"IBM Plex Sans"', 'Inter', 'system-ui', '-apple-system', 'sans-serif'],
-        mono: ['"IBM Plex Mono"', '"JetBrains Mono"', 'ui-monospace', 'monospace'],
+        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
       },
       borderRadius: {
-        DEFAULT: '4px',
-        sm: '3px',
-        md: '6px',
+        DEFAULT: '8px',
+        sm: '6px',
+        md: '14px',
+      },
+      boxShadow: {
+        pill: 'var(--shadow-pill)',
       },
     },
   },

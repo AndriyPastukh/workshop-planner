@@ -28,7 +28,7 @@ export function Modal({ open, onClose, title, children, footer, maxWidth = 'max-
       onClick={onClose}
     >
       <div
-        className={`w-full ${maxWidth} rounded-md border border-line-strong bg-surface text-ink`}
+        className={`w-full ${maxWidth} rounded-3xl border border-line bg-surface text-ink`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-line px-4 py-3">
@@ -92,8 +92,8 @@ export function ConfirmDialog({
                   }
                 : undefined
             }
-            className={`rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 ${
-              danger ? '' : 'bg-accent hover:bg-accent-hover'
+            className={`rounded-full px-4 py-2 text-sm font-medium text-white disabled:opacity-50 ${
+              danger ? '' : 'bg-cta text-on-cta hover:opacity-90'
             }`}
           >
             {isPending ? 'Виконання...' : confirmLabel}

@@ -9,7 +9,7 @@ export function DataTable({
 }) {
   if (isLoading) {
     return (
-      <div className="overflow-hidden rounded-md border border-line bg-surface">
+      <div className="overflow-hidden rounded-2xl border border-line bg-surface">
         <div className="border-b border-line bg-subtle px-3 py-2 text-[11px] font-medium uppercase tracking-wider text-ink-muted">
           Завантаження реєстру...
         </div>
@@ -28,7 +28,7 @@ export function DataTable({
 
   if (rows.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center gap-2.5 rounded-md border border-line bg-surface px-4 py-8 text-center">
+      <div className="flex flex-col items-center justify-center gap-2.5 rounded-2xl border border-line bg-surface px-4 py-8 text-center">
         <p className="text-sm text-ink-secondary">{emptyText}</p>
         {emptyAction}
       </div>
@@ -36,14 +36,14 @@ export function DataTable({
   }
 
   return (
-    <div className="overflow-x-auto rounded-md border border-line bg-surface">
-      <table className="w-full border-collapse text-left text-[13px]">
+    <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
+      <table className="w-full border-collapse text-left text-sm">
         <thead>
-          <tr className="h-8 border-b border-line bg-subtle">
+          <tr className="h-11 border-b border-line bg-subtle">
             {columns.map((col) => (
               <th
                 key={col.key}
-                className={`px-1.5 sm:px-2 text-[11px] font-medium uppercase tracking-wider text-ink-muted whitespace-nowrap ${
+                className={`px-3 sm:px-4 font-mono text-[11.5px] font-normal uppercase tracking-[0.08em] text-ink-muted whitespace-nowrap ${
                   col.align === 'right' ? 'text-right' : 'text-left'
                 } ${col.headerClassName ?? ''}`}
               >
@@ -57,14 +57,14 @@ export function DataTable({
             <tr
               key={rowKey(row)}
               onClick={onRowClick ? () => onRowClick(row) : undefined}
-              className={`h-10 transition-colors ${
+              className={`h-14 transition-colors ${
                 onRowClick ? 'cursor-pointer hover:bg-subtle/60' : 'hover:bg-subtle/40'
               }`}
             >
               {columns.map((col) => (
                 <td
                   key={col.key}
-                  className={`px-1.5 sm:px-2 py-1.5 align-middle ${
+                  className={`px-3 sm:px-4 py-2 align-middle ${
                     col.align === 'right' ? 'text-right' : 'text-left'
                   } ${col.cellClassName ?? ''}`}
                 >

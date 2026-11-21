@@ -26,7 +26,7 @@ const VARIANT_STYLES = {
     bg: 'var(--st-progress-bg)',
     color: 'var(--st-progress-fg)',
     borderColor: 'var(--st-progress-bd)',
-    dot: 'var(--accent)',
+    dot: 'var(--st-progress-fg)',
     label: ORDER_STATUS_LABELS.in_progress,
   },
   done: {
@@ -75,7 +75,7 @@ export function StatusBadge({ status, label, className = '' }) {
         color: cfg.color,
         borderColor: cfg.borderColor,
       }}
-      className={`inline-flex h-[22px] items-center gap-1 sm:gap-1.5 rounded border px-1.5 sm:px-2 text-[11px] font-medium leading-none whitespace-nowrap ${className}`}
+      className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium leading-none whitespace-nowrap ${className}`}
     >
       <span
         style={{ backgroundColor: cfg.dot }}

@@ -111,7 +111,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={submitting}
-            className="h-9 w-full rounded bg-accent px-4 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
+            className="h-11 w-full rounded-full bg-cta px-4 text-sm font-medium text-on-cta transition-opacity hover:opacity-90 disabled:opacity-60"
           >
             {submitting ? 'Перевірка...' : 'Увійти'}
           </button>

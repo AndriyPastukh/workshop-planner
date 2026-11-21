@@ -3,74 +3,80 @@
 @tailwind utilities;
 
 :root {
-  --bg-canvas: #f7f6f3;
+  --bg-canvas: #ffffff;
   --bg-surface: #ffffff;
-  --bg-subtle: #efece5;
-  --text-ink: #1c1c1a;
-  --text-secondary: #57564f;
-  --text-muted: #7c7a71;
-  --border-line: #e2dfd7;
-  --border-strong: #cbc6ba;
-  --accent: #e8590c;
-  --accent-hover: #d04d07;
-  --accent-soft: #fff1e8;
+  --bg-subtle: #f3f3f3;
+  --text-ink: #0a0a0a;
+  --text-secondary: #4a4d52;
+  --text-muted: #6f7378;
+  --border-line: #ececec;
+  --border-strong: #d2d4d7;
+  --accent: #d9480f;
+  --accent-hover: #c2410c;
+  --accent-soft: #fdeee6;
+  --cta: #0a0a0a;
+  --on-cta: #ffffff;
+  --shadow-pill: 0 8px 24px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
 
-  --st-draft-bg: #f1efe9;
-  --st-draft-fg: #5c5a52;
-  --st-draft-bd: #ddd9ce;
-  --st-quoted-bg: #eef3f8;
-  --st-quoted-fg: #345678;
-  --st-quoted-bd: #cedbe8;
-  --st-confirmed-bg: #fbf5e6;
-  --st-confirmed-fg: #7c5d18;
-  --st-confirmed-bd: #e9dcba;
-  --st-progress-bg: #fff1e8;
-  --st-progress-fg: #b54509;
-  --st-progress-bd: #f5cfb8;
-  --st-done-bg: #ebf4ee;
-  --st-done-fg: #2a603b;
-  --st-done-bd: #c7dfce;
-  --st-cancelled-bg: #f6ecec;
+  --st-draft-bg: #f3f3f3;
+  --st-draft-fg: #5b5f65;
+  --st-draft-bd: #f3f3f3;
+  --st-quoted-bg: #fbf0d6;
+  --st-quoted-fg: #8a5a00;
+  --st-quoted-bd: #fbf0d6;
+  --st-confirmed-bg: #e7effc;
+  --st-confirmed-fg: #0b57d0;
+  --st-confirmed-bd: #e7effc;
+  --st-progress-bg: #e3f3e8;
+  --st-progress-fg: #1b7a3e;
+  --st-progress-bd: #e3f3e8;
+  --st-done-bg: #f3f3f3;
+  --st-done-fg: #6f7378;
+  --st-done-bd: #f3f3f3;
+  --st-cancelled-bg: #f3f3f3;
   --st-cancelled-fg: #8b3a3a;
-  --st-cancelled-bd: #e4c9c9;
-  --st-danger-bg: #f9ebeb;
-  --st-danger-fg: #9c2b2b;
-  --st-danger-bd: #e7bdbd;
+  --st-cancelled-bd: #f3f3f3;
+  --st-danger-bg: #fdecea;
+  --st-danger-fg: #c4301f;
+  --st-danger-bd: #f6c9c4;
 }
 
 html.dark {
-  --bg-canvas: #171715;
-  --bg-surface: #1f1f1c;
-  --bg-subtle: #262622;
-  --text-ink: #eeede8;
-  --text-secondary: #b0aea4;
-  --text-muted: #828077;
-  --border-line: #31312c;
-  --border-strong: #45443d;
-  --accent: #f06418;
-  --accent-hover: #fa7329;
-  --accent-soft: #341f13;
+  --bg-canvas: #0f1012;
+  --bg-surface: #16181b;
+  --bg-subtle: #202327;
+  --text-ink: #f2f2f2;
+  --text-secondary: #bcc0c6;
+  --text-muted: #8e949b;
+  --border-line: #26292d;
+  --border-strong: #3a3e44;
+  --accent: #ff8a5b;
+  --accent-hover: #ff9d77;
+  --accent-soft: #3a2218;
+  --cta: #f2f2f2;
+  --on-cta: #0f1012;
+  --shadow-pill: 0 8px 24px rgba(0, 0, 0, 0.5);
 
-  --st-draft-bg: #272723;
-  --st-draft-fg: #b0aea4;
-  --st-draft-bd: #3b3a34;
-  --st-quoted-bg: #1d2733;
-  --st-quoted-fg: #8fb3d9;
-  --st-quoted-bd: #2e3e52;
-  --st-confirmed-bg: #2e2819;
-  --st-confirmed-fg: #d6b469;
-  --st-confirmed-bd: #473d24;
-  --st-progress-bg: #341f13;
-  --st-progress-fg: #f2915e;
-  --st-progress-bd: #59331e;
-  --st-done-bg: #1b2a20;
-  --st-done-fg: #7ec295;
-  --st-done-bd: #2b4433;
-  --st-cancelled-bg: #2e1e1e;
+  --st-draft-bg: #202327;
+  --st-draft-fg: #aab0b8;
+  --st-draft-bd: #202327;
+  --st-quoted-bg: #3b3420;
+  --st-quoted-fg: #e5c86a;
+  --st-quoted-bd: #3b3420;
+  --st-confirmed-bg: #1f3550;
+  --st-confirmed-fg: #8cc4ff;
+  --st-confirmed-bd: #1f3550;
+  --st-progress-bg: #1e3d2b;
+  --st-progress-fg: #7fd9a0;
+  --st-progress-bd: #1e3d2b;
+  --st-done-bg: #202327;
+  --st-done-fg: #8e949b;
+  --st-done-bd: #202327;
+  --st-cancelled-bg: #202327;
   --st-cancelled-fg: #d98c8c;
-  --st-cancelled-bd: #4a2e2e;
-  --st-danger-bg: #351d1d;
-  --st-danger-fg: #e58e8e;
+  --st-cancelled-bd: #202327;
+  --st-danger-bg: #3a2222;
+  --st-danger-fg: #ff8a80;
   --st-danger-bd: #5c3131;
 }
 
@@ -78,9 +84,14 @@ html.dark {
   body {
     background-color: var(--bg-canvas);
     color: var(--text-ink);
-    font-family: 'IBM Plex Sans', Inter, system-ui, sans-serif;
-    font-size: 14px;
-    line-height: 1.45;
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--text-ink);
+    outline-offset: 2px;
   }
 }
 

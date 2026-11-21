@@ -287,7 +287,7 @@ export default function OrdersPage() {
           <button
             type="button"
             onClick={() => setWizardNoticeOpen(true)}
-            className="inline-flex h-8 items-center gap-1.5 rounded bg-accent px-3 text-xs font-medium text-white transition-colors hover:bg-accent-hover"
+            className="inline-flex h-11 items-center gap-2 rounded-full bg-cta px-5 text-sm font-medium text-on-cta transition-opacity hover:opacity-90"
           >
             <Plus className="h-3.5 w-3.5" strokeWidth={2} />
             <span>Нове замовлення</span>
@@ -357,8 +357,8 @@ export default function OrdersPage() {
       </div>
 
       {/* Filters strip */}
-      <div className="flex flex-col gap-2.5 rounded-md border border-line bg-surface p-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-wrap gap-1" role="tablist" aria-label="Фільтр за статусом">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap gap-1 rounded-2xl bg-subtle p-1" role="tablist" aria-label="Фільтр за статусом">
           {STATUS_TABS.map((tab) => {
             const active = statusFilter === tab.key;
             return (
@@ -368,10 +368,10 @@ export default function OrdersPage() {
                 role="tab"
                 aria-selected={active}
                 onClick={() => setStatusFilter(tab.key)}
-                className={`rounded border px-2.5 py-1 text-xs font-medium transition-colors ${
+                className={`h-9 rounded-xl px-3.5 text-sm font-medium transition-colors ${
                   active
-                    ? 'border-accent bg-accent-soft text-accent'
-                    : 'border-transparent bg-subtle/70 text-ink-secondary hover:border-line hover:text-ink'
+                    ? 'bg-surface text-ink shadow-sm'
+                    : 'text-ink-muted hover:text-ink'
                 }`}
               >
                 {tab.label}
@@ -381,9 +381,9 @@ export default function OrdersPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-0 flex-1 sm:w-56 sm:flex-initial">
+          <div className="relative min-w-0 flex-1 sm:w-64 sm:flex-initial">
             <Search
-              className="pointer-events-none absolute left-2.5 top-2 h-3.5 w-3.5 text-ink-muted"
+              className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-ink-muted"
               strokeWidth={1.75}
             />
             <input
@@ -392,11 +392,11 @@ export default function OrdersPage() {
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Код, клієнт, позиція..."
               aria-label="Пошук замовлень"
-              className="h-8 w-full rounded border border-line-strong bg-canvas pl-8 pr-2.5 text-xs text-ink placeholder:text-ink-muted outline-none focus:border-accent"
+              className="h-10 w-full rounded-xl border border-line bg-surface pl-9 pr-3 text-sm text-ink placeholder:text-ink-muted outline-none focus:border-accent"
             />
           </div>
 
-          <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded border border-line bg-canvas px-2.5 text-xs text-ink-secondary select-none">
+          <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-line bg-surface px-3 text-sm text-ink-secondary select-none">
             <input
               type="checkbox"
               checked={rushOnly}
@@ -468,7 +468,7 @@ export default function OrdersPage() {
                         label: ORDER_STATUS_NEXT_ACTIONS[selectedOrder.status].label,
                       })
                     }
-                    className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover"
+                    className="rounded-full bg-cta px-4 py-2 text-sm font-medium text-on-cta hover:opacity-90"
                   >
                     {ORDER_STATUS_NEXT_ACTIONS[selectedOrder.status].label}
                   </button>
@@ -594,7 +594,7 @@ export default function OrdersPage() {
           <button
             type="button"
             onClick={() => setWizardNoticeOpen(false)}
-            className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover"
+            className="rounded-full bg-cta px-4 py-2 text-sm font-medium text-on-cta hover:opacity-90"
           >
             Зрозуміло
           </button>
