@@ -3,11 +3,14 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell.jsx';
 import { AuthProvider, useAuth } from './lib/auth.jsx';
 import { ThemeProvider } from './lib/theme.jsx';
+import DashboardPage from './pages/DashboardPage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
+import MachinesPage from './pages/MachinesPage.jsx';
 import MaterialsPage from './pages/MaterialsPage.jsx';
 import OrderDetailsPage from './pages/OrderDetailsPage.jsx';
 import OrdersPage from './pages/OrdersPage.jsx';
 import PlaceholderPage from './pages/PlaceholderPage.jsx';
+import PlannerPage from './pages/PlannerPage.jsx';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -41,7 +44,14 @@ export default function App() {
           <BrowserRouter>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
-              <Route path="/" element={<Navigate to="/orders" replace />} />
+              <Route
+                path="/"
+                element={
+                  <ProtectedRoute>
+                    <DashboardPage />
+                  </ProtectedRoute>
+                }
+              />
               <Route
                 path="/orders"
                 element={
@@ -62,10 +72,7 @@ export default function App() {
                 path="/planner"
                 element={
                   <ProtectedRoute>
-                    <PlaceholderPage
-                      title="Планувальник черги (Гант)"
-                      description="Діаграма Ганта на CSS Grid із переналаштуваннями, закріпленими слотами та порівнянням FIFO/EDD/SPT/ATCS буде реалізована у Фазі 6."
-                    />
+                    <PlannerPage />
                   </ProtectedRoute>
                 }
               />
@@ -73,10 +80,7 @@ export default function App() {
                 path="/machines"
                 element={
                   <ProtectedRoute>
-                    <PlaceholderPage
-                      title="Верстати та графік ТО"
-                      description="Керування парком обладнання, ставками амортизації та вікнами обслуговування буде додано у Фазі 6."
-                    />
+                    <MachinesPage />
                   </ProtectedRoute>
                 }
               />

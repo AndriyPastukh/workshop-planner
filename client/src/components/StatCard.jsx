@@ -71,19 +71,19 @@ export function StatCard({ label, value, moneyValue, hint, accent = false, class
 
   return (
     <div
-      className={`rounded-2xl border bg-surface px-4 py-3.5 transition-[border-color,transform] duration-150 hover:border-line-strong ${
+      className={`min-w-0 overflow-hidden rounded-2xl border bg-surface px-3 py-3 sm:px-4 sm:py-3.5 transition-[border-color,transform] duration-150 hover:border-line-strong ${
         accent ? 'border-accent/50' : 'border-line'
       } ${className}`}
     >
-      <div className="font-mono text-[11.5px] uppercase tracking-[0.08em] text-ink-muted">{label}</div>
+      <div className="truncate font-mono text-[11px] sm:text-[11.5px] uppercase tracking-[0.08em] text-ink-muted">{label}</div>
       <div
-        className={`mt-1.5 font-mono text-[28px] font-semibold leading-tight tracking-tight tabular-nums ${
+        className={`mt-1.5 font-mono text-[18px] sm:text-2xl lg:text-[28px] font-semibold leading-tight tracking-tight tabular-nums ${
           accent ? 'text-accent' : 'text-ink'
         }`}
       >
         {renderedValue}
       </div>
-      {hint ? <div className="mt-0.5 text-sm text-ink-muted">{hint}</div> : null}
+      {hint ? <div className="mt-0.5 truncate text-xs sm:text-sm text-ink-muted">{hint}</div> : null}
     </div>
   );
 }

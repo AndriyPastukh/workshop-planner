@@ -29,7 +29,7 @@ const NAV_ITEMS = [
 ];
 
 const ROUND_BTN =
-  'inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-surface text-ink shadow-pill transition-[background-color,transform] duration-150 hover:bg-subtle active:scale-95';
+  'inline-flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-surface text-ink shadow-pill transition-[background-color,transform] duration-150 hover:bg-subtle active:scale-95';
 
 // Floating pill navigation: one bar for every screen size (scrolls sideways on very narrow phones).
 export function AppShell({ children }) {
@@ -69,74 +69,76 @@ export function AppShell({ children }) {
   }, [updateIndicator]);
 
   return (
-    <div className="min-h-screen bg-canvas text-ink">
+    <div className="min-h-screen overflow-x-clip bg-canvas text-ink">
       {/* Subtle non-blocking top progress bar during background queries */}
       <div aria-hidden="true" className="pointer-events-none fixed inset-x-0 top-0 z-50 h-0.5 overflow-hidden">
         {isFetching > 0 ? <div className="h-full wp-topbar-active" /> : null}
       </div>
 
-      <header className="sticky top-0 z-30 mx-auto flex w-max max-w-full items-center gap-2.5 overflow-x-auto p-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <nav
-          className="relative flex gap-1 rounded-full bg-surface p-1.5 shadow-pill"
-          aria-label="Головна навігація"
-        >
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute left-0 top-1.5 z-0 h-11 rounded-full bg-subtle transition-[transform,width,opacity] duration-200 ease-out"
-            style={{
-              width: indicator.width,
-              transform: `translateX(${indicator.left}px)`,
-              opacity: indicator.ready ? 1 : 0,
-            }}
-          />
-
-          {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              ref={(el) => {
-                if (el) {
-                  itemRefs.current[to] = el;
-                }
+      <header className="sticky top-0 z-30 w-full px-2.5 py-3 sm:px-5 sm:py-5">
+        <div className="mx-auto flex w-full max-w-full items-center justify-start gap-1.5 overflow-x-auto py-1 sm:w-max sm:justify-center sm:gap-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <nav
+            className="relative flex shrink-0 gap-0.5 sm:gap-1 rounded-full bg-surface p-1 sm:p-1.5 shadow-pill"
+            aria-label="Головна навігація"
+          >
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute left-0 top-1 sm:top-1.5 z-0 h-9 sm:h-11 rounded-full bg-subtle transition-[transform,width,opacity] duration-200 ease-out"
+              style={{
+                width: indicator.width,
+                transform: `translateX(${indicator.left}px)`,
+                opacity: indicator.ready ? 1 : 0,
               }}
-              title={label}
-              aria-label={label}
-              className={({ isActive }) =>
-                `relative z-10 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors duration-150 ${
-                  isActive ? 'text-ink' : 'text-ink-muted hover:bg-subtle/60 hover:text-ink'
-                }`
-              }
-            >
-              <Icon className="h-[18px] w-[18px]" strokeWidth={1.75} />
-            </NavLink>
-          ))}
-        </nav>
-        <button
-          type="button"
-          onClick={toggleTheme}
-          className={ROUND_BTN}
-          title={theme === 'dark' ? 'Світла тема' : 'Темна тема'}
-          aria-label="Перемкнути тему"
-        >
-          {theme === 'dark' ? (
-            <Sun className="h-[18px] w-[18px]" strokeWidth={1.75} />
-          ) : (
-            <Moon className="h-[18px] w-[18px]" strokeWidth={1.75} />
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            logout();
-            navigate('/login');
-          }}
-          className={ROUND_BTN}
-          title={`Вийти (${user?.name ?? 'користувач'}, ${user?.role ?? ''})`}
-          aria-label="Вийти"
-        >
-          <LogOut className="h-[18px] w-[18px]" strokeWidth={1.75} />
-        </button>
+            />
+
+            {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
+              <NavLink
+                key={to}
+                to={to}
+                end={to === '/'}
+                ref={(el) => {
+                  if (el) {
+                    itemRefs.current[to] = el;
+                  }
+                }}
+                title={label}
+                aria-label={label}
+                className={({ isActive }) =>
+                  `relative z-10 inline-flex h-9 w-9 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-full transition-colors duration-150 ${
+                    isActive ? 'text-ink' : 'text-ink-muted hover:bg-subtle/60 hover:text-ink'
+                  }`
+                }
+              >
+                <Icon className="h-[18px] w-[18px]" strokeWidth={1.75} />
+              </NavLink>
+            ))}
+          </nav>
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className={ROUND_BTN}
+            title={theme === 'dark' ? 'Світла тема' : 'Темна тема'}
+            aria-label="Перемкнути тему"
+          >
+            {theme === 'dark' ? (
+              <Sun className="h-[18px] w-[18px]" strokeWidth={1.75} />
+            ) : (
+              <Moon className="h-[18px] w-[18px]" strokeWidth={1.75} />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              logout();
+              navigate('/login');
+            }}
+            className={ROUND_BTN}
+            title={`Вийти (${user?.name ?? 'користувач'}, ${user?.role ?? ''})`}
+            aria-label="Вийти"
+          >
+            <LogOut className="h-[18px] w-[18px]" strokeWidth={1.75} />
+          </button>
+        </div>
       </header>
 
       <main className="mx-auto max-w-[1200px] px-4 pb-16 pt-4 sm:px-6 lg:pt-8">

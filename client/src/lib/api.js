@@ -94,6 +94,9 @@ export const ordersApi = {
 export const customersApi = {
   list: () => apiRequest('/customers'),
   get: (id) => apiRequest(`/customers/${id}`),
+  create: (body) => apiRequest('/customers', { method: 'POST', body }),
+  update: (id, body) => apiRequest(`/customers/${id}`, { method: 'PATCH', body }),
+  remove: (id) => apiRequest(`/customers/${id}`, { method: 'DELETE' }),
 };
 
 export const materialsApi = {
@@ -105,6 +108,9 @@ export const materialsApi = {
 
 export const templatesApi = {
   list: () => apiRequest('/templates'),
+  create: (body) => apiRequest('/templates', { method: 'POST', body }),
+  update: (id, body) => apiRequest(`/templates/${id}`, { method: 'PATCH', body }),
+  remove: (id) => apiRequest(`/templates/${id}`, { method: 'DELETE' }),
 };
 
 export const pricingApi = {
@@ -113,12 +119,36 @@ export const pricingApi = {
 
 export const machinesApi = {
   list: () => apiRequest('/machines'),
+  get: (id) => apiRequest(`/machines/${id}`),
+  create: (body) => apiRequest('/machines', { method: 'POST', body }),
+  update: (id, body) => apiRequest(`/machines/${id}`, { method: 'PATCH', body }),
+  remove: (id) => apiRequest(`/machines/${id}`, { method: 'DELETE' }),
+  addMaintenance: (id, body) =>
+    apiRequest(`/machines/${id}/maintenance`, { method: 'POST', body }),
+  removeMaintenance: (id, windowId) =>
+    apiRequest(`/machines/${id}/maintenance/${windowId}`, { method: 'DELETE' }),
 };
 
 export const scheduleApi = {
   get: () => apiRequest('/schedule'),
   compare: () => apiRequest('/schedule/compare'),
   rebuild: (rule = 'ATCS') => apiRequest(`/schedule/rebuild?rule=${rule}`, { method: 'POST' }),
+  updateEntry: (id, body) => apiRequest(`/schedule/${id}`, { method: 'PATCH', body }),
+};
+
+export const quotesApi = {
+  feasibility: (body) => apiRequest('/quotes/feasibility', { method: 'POST', body }),
+};
+
+export const settingsApi = {
+  get: () => apiRequest('/settings'),
+  update: (body) => apiRequest('/settings', { method: 'PATCH', body }),
+};
+
+export const setupRulesApi = {
+  list: () => apiRequest('/setup-rules'),
+  upsert: (body) => apiRequest('/setup-rules', { method: 'PUT', body }),
+  remove: (id) => apiRequest(`/setup-rules/${id}`, { method: 'DELETE' }),
 };
 
 export const analyticsApi = {
