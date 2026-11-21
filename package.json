@@ -23,6 +23,7 @@
     "db:migrate": "prisma migrate dev --schema=server/prisma/schema.prisma",
     "db:migrate:deploy": "prisma migrate deploy --schema=server/prisma/schema.prisma",
     "db:seed": "node server/prisma/seed.js",
+    "benchmark": "node scripts/benchmark.js",
     "report": "echo report builder will be configured in Phase 9"
   },
   "devDependencies": {

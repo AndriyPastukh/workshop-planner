@@ -178,17 +178,56 @@ function insertOccupiedSorted(intervals, interval) {
   intervals.sort((a, b) => a.blockStartMs - b.blockStartMs);
 }
 
-function pickCandidateForMachine({ machine, candidates, occupied, startTimeMs, rules, params }) {
+/**
+ * Compute slot on an unlocked machine directly at its chronological tail in O(1).
+ */
+function buildTailSlot({ earliestMs, prevOcc, job, machine, rules }) {
+  const p = getProcessingTimeMin(job, machine);
+  const setupStartMs = snapToWorkTime(prevOcc ? prevOcc.endMs : earliestMs, machine.calendar);
+  const isNewShift =
+    prevOcc != null &&
+    machine.calendar != null &&
+    isDifferentWorkDay(prevOcc.endMs, setupStartMs);
+
+  const setupMin = setupTime(prevOcc ? prevOcc.jobSnapshot : null, job, machine, rules, {
+    isNewShift,
+  });
+  const setupEndMs =
+    setupMin > 0 ? advanceWorkTime(setupStartMs, setupMin, machine.calendar) : setupStartMs;
+  const startMs = setupEndMs;
+  const endMs = p > 0 ? advanceWorkTime(startMs, p, machine.calendar) : startMs;
+
+  return { setupStartMs, setupEndMs, startMs, endMs, setupMin, processingMin: p };
+}
+
+function pickCandidateForMachine({
+  machine,
+  candidates,
+  occupied,
+  hasLocked,
+  startTimeMs,
+  rules,
+  params,
+}) {
   let best = null;
+  const tailOcc = !hasLocked && occupied.length > 0 ? occupied[occupied.length - 1] : null;
 
   for (const job of candidates) {
-    const slot = findNextFreeSlot({
-      earliestMs: startTimeMs,
-      job,
-      machine,
-      rules,
-      occupiedIntervals: occupied,
-    });
+    const slot = hasLocked
+      ? findNextFreeSlot({
+          earliestMs: startTimeMs,
+          job,
+          machine,
+          rules,
+          occupiedIntervals: occupied,
+        })
+      : buildTailSlot({
+          earliestMs: startTimeMs,
+          prevOcc: tailOcc,
+          job,
+          machine,
+          rules,
+        });
 
     const atcsScore =
       params.rule === 'ATCS'
@@ -308,6 +347,7 @@ export function schedule(jobs = [], machines = [], rules = DEFAULT_SETUP_RULES, 
 
   const machineList = machines.map((m) => ({ ...m }));
   const occupiedByMachine = new Map(machineList.map((m) => [m.id, []]));
+  const hasLockedByMachine = new Set();
 
   const normalizedJobs = jobs.map((job, index) => ({
     ...job,
@@ -340,6 +380,7 @@ export function schedule(jobs = [], machines = [], rules = DEFAULT_SETUP_RULES, 
 
       const slot = { setupStartMs, setupEndMs, startMs, endMs, setupMin, processingMin };
       entries.push(buildEntryRecord({ job, machine, slot, locked: true }));
+      hasLockedByMachine.add(machine.id);
       insertOccupiedSorted(occupiedByMachine.get(machine.id), {
         blockStartMs: setupStartMs,
         blockEndMs: endMs,
@@ -381,19 +422,28 @@ export function schedule(jobs = [], machines = [], rules = DEFAULT_SETUP_RULES, 
         continue;
       }
       const occupied = occupiedByMachine.get(machine.id);
+      const machineHasLocked = hasLockedByMachine.has(machine.id);
       let machineMinStart = Infinity;
-      for (const job of candidates) {
-        const slot = findNextFreeSlot({
-          earliestMs: startTimeMs,
-          job,
-          machine,
-          rules,
-          occupiedIntervals: occupied,
-        });
-        if (slot.setupStartMs < machineMinStart) {
-          machineMinStart = slot.setupStartMs;
+
+      if (!machineHasLocked) {
+        // Unlocked machine: all candidates share the same O(1) chronological tail availability.
+        const prevEnd = occupied.length > 0 ? occupied[occupied.length - 1].endMs : startTimeMs;
+        machineMinStart = snapToWorkTime(prevEnd, machine.calendar);
+      } else {
+        for (const job of candidates) {
+          const slot = findNextFreeSlot({
+            earliestMs: startTimeMs,
+            job,
+            machine,
+            rules,
+            occupiedIntervals: occupied,
+          });
+          if (slot.setupStartMs < machineMinStart) {
+            machineMinStart = slot.setupStartMs;
+          }
         }
       }
+
       if (machineMinStart < chosenEarliestStart) {
         chosenEarliestStart = machineMinStart;
         chosenMachine = machine;
@@ -406,22 +456,29 @@ export function schedule(jobs = [], machines = [], rules = DEFAULT_SETUP_RULES, 
     }
 
     const occupied = occupiedByMachine.get(chosenMachine.id);
+    const chosenHasLocked = hasLockedByMachine.has(chosenMachine.id);
     const chosen = pickCandidateForMachine({
       machine: chosenMachine,
       candidates: chosenCandidates,
       occupied,
+      hasLocked: chosenHasLocked,
       startTimeMs,
       rules,
       params: { rule, pBar, sBar, k1, k2 },
     });
 
     entries.push(buildEntryRecord({ job: chosen.job, machine: chosenMachine, slot: chosen.slot, locked: false }));
-    insertOccupiedSorted(occupied, {
+    const newInterval = {
       blockStartMs: chosen.slot.setupStartMs,
       blockEndMs: chosen.slot.endMs,
       endMs: chosen.slot.endMs,
       jobSnapshot: chosen.job,
-    });
+    };
+    if (chosenHasLocked) {
+      insertOccupiedSorted(occupied, newInterval);
+    } else {
+      occupied.push(newInterval);
+    }
 
     activeQueue = activeQueue.filter((j) => j.id !== chosen.job.id);
   }

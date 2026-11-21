@@ -37,6 +37,7 @@ export default [
     files: [
       'server/src/**/*.js',
       'server/prisma/**/*.js',
+      'scripts/**/*.js',
       '*.config.js',
       'client/vite.config.js',
       'server/vitest.config.js',
