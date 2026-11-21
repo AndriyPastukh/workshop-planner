@@ -1,18 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { DataTable } from '../components/DataTable.jsx';
-import { ConfirmDialog, Modal } from '../components/Modal.jsx';
+import { ConfirmDialog } from '../components/Modal.jsx';
 import { Money } from '../components/Money.jsx';
 import { OrderFormModal } from '../components/OrderFormModal.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
-import { PricingBreakdownTable } from '../components/PricingBreakdownTable.jsx';
 import { StatCard } from '../components/StatCard.jsx';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { ordersApi } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
 import {
-  MACHINE_TYPE_LABELS,
   ORDER_STATUS_LABELS,
   ORDER_STATUS_NEXT_ACTIONS,
   formatDateTime,
@@ -30,13 +29,13 @@ const STATUS_TABS = [
 
 export default function OrdersPage() {
   const { isOwner } = useAuth();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const [statusFilter, setStatusFilter] = useState('');
   const [search, setSearch] = useState('');
   const [rushOnly, setRushOnly] = useState(false);
 
-  const [selectedOrder, setSelectedOrder] = useState(null);
   const [pendingAction, setPendingAction] = useState(null);
   const [formState, setFormState] = useState({ open: false, order: null });
   const [warningsBanner, setWarningsBanner] = useState([]);
@@ -68,10 +67,9 @@ export default function OrdersPage() {
         setWarningsBanner(res.warnings);
       }
       setPendingAction(null);
-      if (selectedOrder && res.order?.id === selectedOrder.id) {
-        setSelectedOrder(res.order);
-      }
       queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['materials'] });
+      queryClient.invalidateQueries({ queryKey: ['analytics'] });
     },
     onError: (err) => {
       setActionError(err.message || 'Не вдалося змінити статус');
@@ -84,8 +82,8 @@ export default function OrdersPage() {
     onSuccess: () => {
       setActionError('');
       setPendingAction(null);
-      setSelectedOrder(null);
       queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['materials'] });
     },
     onError: (err) => {
       setActionError(err.message || 'Не вдалося видалити замовлення');
@@ -114,9 +112,13 @@ export default function OrdersPage() {
       render: (row) => (
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 whitespace-nowrap">
-            <span className="font-mono text-xs font-medium text-ink whitespace-nowrap">
+            <Link
+              to={`/orders/${row.id}`}
+              onClick={(e) => e.stopPropagation()}
+              className="font-mono text-xs font-medium text-ink whitespace-nowrap hover:text-accent hover:underline"
+            >
               {row.code}
-            </span>
+            </Link>
             {row.isRush ? (
               <span
                 className="hidden sm:inline-block rounded border px-1 py-0.5 font-mono text-[10px] font-medium leading-none text-accent"
@@ -242,9 +244,21 @@ export default function OrdersPage() {
       cellClassName: 'hidden sm:table-cell whitespace-nowrap',
       render: (row) => {
         const nextAction = ORDER_STATUS_NEXT_ACTIONS[row.status];
+        const canEdit = row.status === 'draft' || row.status === 'quoted';
         const canDelete = isOwner && (row.status === 'draft' || row.status === 'cancelled');
         return (
           <div className="inline-flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+            {canEdit ? (
+              <button
+                type="button"
+                onClick={() => setFormState({ open: true, order: row })}
+                className="rounded border border-line p-1 text-ink-muted hover:border-line-strong hover:text-ink"
+                title="Редагувати замовлення"
+                aria-label={`Редагувати ${row.code}`}
+              >
+                <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
+              </button>
+            ) : null}
             {nextAction ? (
               <button
                 type="button"
@@ -427,7 +441,7 @@ export default function OrdersPage() {
           columns={columns}
           rows={orders}
           isLoading={isLoading}
-          onRowClick={(row) => setSelectedOrder(row)}
+          onRowClick={(row) => navigate(`/orders/${row.id}`)}
           emptyText="За обраними фільтрами замовлень не знайдено."
           emptyAction={
             <button
@@ -444,115 +458,6 @@ export default function OrdersPage() {
           }
         />
       )}
-
-      {/* Order quick-inspector modal */}
-      <Modal
-        open={Boolean(selectedOrder)}
-        onClose={() => setSelectedOrder(null)}
-        title={selectedOrder ? `Замовлення ${selectedOrder.code}` : ''}
-        maxWidth="max-w-3xl"
-        footer={
-          selectedOrder ? (
-            <div className="flex w-full flex-wrap items-center justify-between gap-2">
-              <div className="font-mono text-xs text-ink-muted">
-                Дедлайн: {formatDateTime(selectedOrder.deadline)}
-              </div>
-              <div className="flex items-center gap-2">
-                {selectedOrder.status === 'draft' || selectedOrder.status === 'quoted' ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const target = selectedOrder;
-                      setSelectedOrder(null);
-                      setFormState({ open: true, order: target });
-                    }}
-                    className="inline-flex items-center gap-1 rounded-full border border-line-strong bg-surface px-3.5 py-2 text-xs font-medium text-ink hover:bg-subtle"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                    Редагувати
-                  </button>
-                ) : null}
-                {ORDER_STATUS_NEXT_ACTIONS[selectedOrder.status] ? (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setPendingAction({
-                        type: 'transition',
-                        order: selectedOrder,
-                        nextStatus: ORDER_STATUS_NEXT_ACTIONS[selectedOrder.status].status,
-                        label: ORDER_STATUS_NEXT_ACTIONS[selectedOrder.status].label,
-                      })
-                    }
-                    className="rounded-full bg-cta px-4 py-2 text-sm font-medium text-on-cta hover:opacity-90"
-                  >
-                    {ORDER_STATUS_NEXT_ACTIONS[selectedOrder.status].label}
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => setSelectedOrder(null)}
-                  className="rounded border border-line-strong bg-surface px-3 py-1.5 text-xs font-medium text-ink hover:bg-subtle"
-                >
-                  Закрити
-                </button>
-              </div>
-            </div>
-          ) : null
-        }
-      >
-        {selectedOrder ? (
-          <div className="max-h-[72vh] space-y-3 overflow-y-auto pr-1">
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-line bg-subtle/50 px-3 py-2">
-              <div>
-                <div className="text-xs font-medium text-ink">{selectedOrder.customer?.name}</div>
-                {selectedOrder.customer?.company ? (
-                  <div className="text-xs text-ink-muted">{selectedOrder.customer.company}</div>
-                ) : null}
-              </div>
-              <div className="flex items-center gap-1.5">
-                {selectedOrder.isRush ? <StatusBadge status="rush" /> : null}
-                <StatusBadge status={selectedOrder.status} />
-              </div>
-            </div>
-
-            <div className="overflow-x-auto rounded border border-line">
-              <table className="w-full border-collapse text-xs">
-                <thead>
-                  <tr className="h-7 border-b border-line bg-subtle text-[10px] uppercase tracking-wider text-ink-muted">
-                    <th className="px-2.5 text-left">Позиція</th>
-                    <th className="px-2.5 text-left">Процес</th>
-                    <th className="px-2.5 text-right">К-сть</th>
-                    <th className="px-2.5 text-right">Ціна</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {(selectedOrder.items ?? []).map((item) => (
-                    <tr key={item.id} className="h-8">
-                      <td className="px-2.5 py-1 text-ink">
-                        <div>{item.title}</div>
-                        <div className="font-mono text-[10px] text-ink-muted">
-                          {item.material?.code}
-                        </div>
-                      </td>
-                      <td className="px-2.5 py-1 text-ink-secondary whitespace-nowrap">
-                        {MACHINE_TYPE_LABELS[item.machineType] ?? item.machineType}
-                      </td>
-                      <td className="px-2.5 py-1 text-right font-mono tabular-nums">
-                        {item.qty}
-                      </td>
-                      <td className="px-2.5 py-1 text-right">
-                        <Money value={item.price} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <PricingBreakdownTable items={selectedOrder.items ?? []} />
-          </div>
-        ) : null}
-      </Modal>
 
       {/* Confirm transition / deletion dialog */}
       <ConfirmDialog

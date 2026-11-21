@@ -837,6 +837,7 @@ async function main() {
   const overrunDoneCodes = new Set(['WP-2026-001', 'WP-2026-003']);
   const createdOrders = [];
   const movementRows = [];
+  const orderAuditRows = [];
   const reservedByMat = {};
   const consumedByMat = {};
   const wasteByMat = {};
@@ -941,6 +942,111 @@ async function main() {
     });
 
     createdOrders.push(order);
+
+    // Seed chronological status & audit history for OrderDetails timeline
+    orderAuditRows.push({
+      userId: owner.id,
+      action: 'ORDER_CREATED',
+      entity: 'order',
+      entityId: order.id,
+      payload: { code: order.code, status: 'draft', totalPrice: order.totalPrice },
+      createdAt: addOffset(anchor, { days: -7 }),
+    });
+    if (order.status === 'quoted') {
+      orderAuditRows.push({
+        userId: operator.id,
+        action: 'ORDER_STATUS_CHANGED',
+        entity: 'order',
+        entityId: order.id,
+        payload: { from: 'draft', to: 'quoted' },
+        createdAt: addOffset(anchor, { days: -6 }),
+      });
+    } else if (order.status === 'confirmed') {
+      orderAuditRows.push({
+        userId: operator.id,
+        action: 'ORDER_STATUS_CHANGED',
+        entity: 'order',
+        entityId: order.id,
+        payload: { from: 'draft', to: 'confirmed' },
+        createdAt: addOffset(anchor, { days: -1 }),
+      });
+    } else if (order.status === 'in_progress') {
+      orderAuditRows.push(
+        {
+          userId: operator.id,
+          action: 'ORDER_STATUS_CHANGED',
+          entity: 'order',
+          entityId: order.id,
+          payload: { from: 'draft', to: 'confirmed' },
+          createdAt: addOffset(anchor, { days: -1 }),
+        },
+        {
+          userId: operator.id,
+          action: 'ORDER_STATUS_CHANGED',
+          entity: 'order',
+          entityId: order.id,
+          payload: { from: 'confirmed', to: 'in_progress' },
+          createdAt: addOffset(anchor, { hours: -2 }),
+        }
+      );
+    } else if (order.status === 'done') {
+      orderAuditRows.push(
+        {
+          userId: operator.id,
+          action: 'ORDER_STATUS_CHANGED',
+          entity: 'order',
+          entityId: order.id,
+          payload: { from: 'draft', to: 'confirmed' },
+          createdAt: addOffset(order.deadline, { days: -2 }),
+        },
+        {
+          userId: operator.id,
+          action: 'ORDER_STATUS_CHANGED',
+          entity: 'order',
+          entityId: order.id,
+          payload: { from: 'confirmed', to: 'in_progress' },
+          createdAt: addOffset(order.deadline, { hours: -6 }),
+        },
+        {
+          userId: operator.id,
+          action: 'ORDER_STATUS_CHANGED',
+          entity: 'order',
+          entityId: order.id,
+          payload: { from: 'in_progress', to: 'done' },
+          createdAt: order.deadline,
+        }
+      );
+    } else if (order.status === 'cancelled') {
+      if (order.code === 'WP-2026-006') {
+        orderAuditRows.push(
+          {
+            userId: operator.id,
+            action: 'ORDER_STATUS_CHANGED',
+            entity: 'order',
+            entityId: order.id,
+            payload: { from: 'draft', to: 'confirmed' },
+            createdAt: addOffset(anchor, { days: -2 }),
+          },
+          {
+            userId: owner.id,
+            action: 'ORDER_STATUS_CHANGED',
+            entity: 'order',
+            entityId: order.id,
+            payload: { from: 'confirmed', to: 'cancelled' },
+            createdAt: addOffset(anchor, { days: -1 }),
+          }
+        );
+      } else {
+        orderAuditRows.push({
+          userId: owner.id,
+          action: 'ORDER_STATUS_CHANGED',
+          entity: 'order',
+          entityId: order.id,
+          payload: { from: 'draft', to: 'cancelled' },
+          createdAt: addOffset(anchor, { days: -1 }),
+        });
+      }
+    }
 
     // Record typed stock movements across order lifecycle statuses.
     for (const item of order.items) {
@@ -1204,6 +1310,8 @@ async function main() {
       ruleUsed: 'ATCS',
     })),
   });
+
+  await prisma.auditLog.createMany({ data: orderAuditRows });
 
   await prisma.auditLog.create({
     data: {

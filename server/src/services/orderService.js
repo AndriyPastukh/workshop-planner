@@ -1,5 +1,5 @@
 import { prisma } from '../db.js';
-import { calculateItemCost, calculateOrderTotals } from '../domain/index.js';
+import { calculateItemCost, calculateOrderTotals, roundMoney } from '../domain/index.js';
 import { badRequest, conflict, notFound } from '../lib/errors.js';
 import { logAudit } from './auditService.js';
 import { getSettings } from './settingsService.js';
@@ -8,6 +8,7 @@ import {
   finalizeOrderMaterials,
   releaseOrderMaterials,
   reserveOrderMaterials,
+  roundQty,
 } from './warehouseService.js';
 
 export const ORDER_TRANSITIONS = {
@@ -152,6 +153,118 @@ function attachOrderPricingSummary(order) {
   return { ...order, pricingSummary };
 }
 
+function attachOrderMaterialsSummary(order) {
+  if (!order) {
+    return order;
+  }
+
+  const movements = order.stockMovements ?? [];
+  const spentByUnit = {};
+  const plannedByUnit = {};
+  let totalPlannedCost = 0;
+  let totalActualCost = 0;
+  let totalWasteCost = 0;
+
+  const items = (order.items ?? []).map((item) => {
+    const itemMovements = movements.filter(
+      (mv) => mv.orderItemId === item.id || (!mv.orderItemId && mv.materialId === item.materialId)
+    );
+
+    let reserveSum = 0;
+    let releaseSum = 0;
+    let consumeSum = 0;
+    let wasteSum = 0;
+    for (const mv of itemMovements) {
+      if (mv.type === 'reserve') reserveSum += mv.qty;
+      else if (mv.type === 'release') releaseSum += mv.qty;
+      else if (mv.type === 'consume') consumeSum += mv.qty;
+      else if (mv.type === 'waste') wasteSum += mv.qty;
+    }
+
+    const plannedQty = roundQty(
+      item.plannedMaterialQty > 0
+        ? item.plannedMaterialQty
+        : item.qty * item.usage * (1 + (item.material?.wastePct ?? 0))
+    );
+    const reservedQty = Math.max(0, roundQty(reserveSum - releaseSum));
+    const consumedQty = roundQty(consumeSum);
+    const wasteQty = roundQty(wasteSum);
+    const actualSpentQty =
+      item.actualMaterialQty != null
+        ? roundQty(item.actualMaterialQty)
+        : order.status === 'done' || order.status === 'in_progress'
+          ? roundQty(consumedQty + wasteQty)
+          : 0;
+
+    const unit = item.material?.unit ?? 'од.';
+    const pricePerUnit = item.material?.pricePerUnit ?? 0;
+    const plannedCost = roundMoney(plannedQty * pricePerUnit);
+    const actualCost = roundMoney(actualSpentQty * pricePerUnit);
+
+    let materialStatus = 'not_needed';
+    if (order.status === 'confirmed') {
+      const available = (item.material?.stockQty ?? 0) - (item.material?.reservedQty ?? 0);
+      materialStatus =
+        available < 0 || (item.material?.stockQty ?? 0) < plannedQty
+          ? 'insufficient'
+          : 'reserved';
+    } else if (order.status === 'in_progress' || order.status === 'done') {
+      materialStatus = actualSpentQty + 0.001 < plannedQty ? 'insufficient' : 'in_work';
+    }
+
+    plannedByUnit[unit] = roundQty((plannedByUnit[unit] ?? 0) + plannedQty);
+    spentByUnit[unit] = roundQty((spentByUnit[unit] ?? 0) + actualSpentQty);
+    totalPlannedCost = roundMoney(totalPlannedCost + plannedCost);
+    totalActualCost = roundMoney(totalActualCost + actualCost);
+    totalWasteCost = roundMoney(totalWasteCost + Math.max(0, wasteQty) * pricePerUnit);
+
+    return {
+      ...item,
+      materialSummary: {
+        plannedQty,
+        reservedQty,
+        consumedQty,
+        wasteQty,
+        actualSpentQty,
+        unit,
+        pricePerUnit,
+        plannedCost,
+        actualCost,
+        materialStatus,
+      },
+    };
+  });
+
+  return {
+    ...order,
+    items,
+    materialTotals: {
+      spentByUnit,
+      plannedByUnit,
+      totalPlannedCost,
+      totalActualCost,
+      totalWasteCost,
+    },
+  };
+}
+
+async function fetchOrderAuditLogs(client, orderId) {
+  return client.auditLog.findMany({
+    where: { entity: 'order', entityId: orderId },
+    include: {
+      user: { select: { id: true, name: true, role: true } },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+}
+
+function enrichOrderDetails(order, auditLogs = []) {
+  return attachOrderMaterialsSummary({
+    ...attachOrderPricingSummary(order),
+    auditLogs,
+  });
+}
+
 /**
  * Preview live order item and total pricing without persisting anything to DB.
  */
@@ -237,14 +350,17 @@ export async function listOrders({ status, customerId, search, isRush } = {}) {
 }
 
 export async function getOrderById(id) {
-  const order = await prisma.order.findUnique({
-    where: { id },
-    include: ORDER_INCLUDE,
-  });
+  const [order, auditLogs] = await Promise.all([
+    prisma.order.findUnique({
+      where: { id },
+      include: ORDER_INCLUDE,
+    }),
+    fetchOrderAuditLogs(prisma, id),
+  ]);
   if (!order) {
     throw notFound(`Замовлення ${id} не знайдено`);
   }
-  return attachOrderPricingSummary(order);
+  return enrichOrderDetails(order, auditLogs);
 }
 
 export async function createOrder(payload, userId = null) {
@@ -326,10 +442,12 @@ export async function createOrder(payload, userId = null) {
 
     if (initialStatus === 'confirmed') {
       const refreshed = await tx.order.findUnique({ where: { id: created.id }, include: ORDER_INCLUDE });
-      return attachOrderPricingSummary(refreshed);
+      const auditLogs = await fetchOrderAuditLogs(tx, created.id);
+      return enrichOrderDetails(refreshed, auditLogs);
     }
 
-    return attachOrderPricingSummary(created);
+    const auditLogs = await fetchOrderAuditLogs(tx, created.id);
+    return enrichOrderDetails(created, auditLogs);
   });
 }
 
@@ -468,7 +586,8 @@ export async function updateOrder(id, patch, userId = null) {
     return order;
   });
 
-  return attachOrderPricingSummary(updated);
+  const auditLogs = await fetchOrderAuditLogs(prisma, id);
+  return enrichOrderDetails(updated, auditLogs);
 }
 
 /**
@@ -533,7 +652,8 @@ export async function transitionOrderStatus(id, nextStatus, userId = null, optio
       tx
     );
 
-    return { order: attachOrderPricingSummary(order), warnings };
+    const auditLogs = await fetchOrderAuditLogs(tx, order.id);
+    return { order: enrichOrderDetails(order, auditLogs), warnings };
   });
 }
 

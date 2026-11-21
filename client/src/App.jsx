@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from './lib/auth.jsx';
 import { ThemeProvider } from './lib/theme.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import MaterialsPage from './pages/MaterialsPage.jsx';
+import OrderDetailsPage from './pages/OrderDetailsPage.jsx';
 import OrdersPage from './pages/OrdersPage.jsx';
 import PlaceholderPage from './pages/PlaceholderPage.jsx';
 
@@ -46,6 +47,14 @@ export default function App() {
                 element={
                   <ProtectedRoute>
                     <OrdersPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/orders/:id"
+                element={
+                  <ProtectedRoute>
+                    <OrderDetailsPage />
                   </ProtectedRoute>
                 }
               />

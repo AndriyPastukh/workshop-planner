@@ -83,8 +83,11 @@ export const ordersApi = {
   get: (id) => apiRequest(`/orders/${id}`),
   create: (payload) => apiRequest('/orders', { method: 'POST', body: payload }),
   update: (id, payload) => apiRequest(`/orders/${id}`, { method: 'PATCH', body: payload }),
-  transition: (id, status) =>
-    apiRequest(`/orders/${id}/status`, { method: 'PATCH', body: { status } }),
+  transition: (id, status, actualUsages) =>
+    apiRequest(`/orders/${id}/status`, {
+      method: 'PATCH',
+      body: { status, ...(actualUsages ? { actualUsages } : {}) },
+    }),
   remove: (id) => apiRequest(`/orders/${id}`, { method: 'DELETE' }),
 };
 

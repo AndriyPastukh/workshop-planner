@@ -231,5 +231,23 @@ describe('Warehouse Stock State Machine, Shortage Forecast & Concurrency Race Gu
     expect(listRes.status).toBe(200);
     expect(listRes.body.summary.totalMaterials).toBeGreaterThanOrEqual(12);
     expect(listRes.body.shortages.some((s) => s.materialCode === 'RESIN_TOUGH')).toBe(true);
+
+    // Order details GET /api/orders/:id returns auditLogs, materialSummary, materialTotals & pricingSummary
+    const detailsRes = await request(app)
+      .get(`/api/orders/${workOrder.id}`)
+      .set('Authorization', `Bearer ${operatorToken}`);
+    expect(detailsRes.status).toBe(200);
+    expect(detailsRes.body.order.auditLogs.length).toBeGreaterThanOrEqual(3);
+    expect(detailsRes.body.order.materialTotals.spentByUnit['кг']).toBe(1.35);
+    expect(detailsRes.body.order.items[0].materialSummary).toMatchObject({
+      plannedQty: 1.1,
+      reservedQty: 0,
+      consumedQty: 1.1,
+      wasteQty: 0.25,
+      actualSpentQty: 1.35,
+      unit: 'кг',
+      materialStatus: 'in_work',
+    });
+    expect(detailsRes.body.order.pricingSummary.price).toBeGreaterThan(0);
   });
 });
