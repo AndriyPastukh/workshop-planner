@@ -21,14 +21,14 @@ export function Modal({ open, onClose, title, children, footer, maxWidth = 'max-
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 wp-modal-backdrop"
       role="dialog"
       aria-modal="true"
       aria-label={title}
       onClick={onClose}
     >
       <div
-        className={`w-full ${maxWidth} rounded-3xl border border-line bg-surface text-ink`}
+        className={`w-full ${maxWidth} rounded-3xl border border-line bg-surface text-ink wp-modal-panel`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-line px-4 py-3">

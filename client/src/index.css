@@ -108,3 +108,130 @@ html.dark {
     rgba(124, 122, 113, 0.25) 6px
   );
 }
+
+/* Lightweight CSS animations (150–240 ms, GPU-composited transforms & opacity) */
+@keyframes wp-page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes wp-row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes wp-modal-backdrop {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes wp-modal-panel {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes wp-progress-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes wp-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes wp-topbar-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+.wp-page-enter {
+  animation: wp-page-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.wp-row-enter {
+  animation: wp-row-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.wp-modal-backdrop {
+  animation: wp-modal-backdrop 160ms ease-out both;
+}
+
+.wp-modal-panel {
+  animation: wp-modal-panel 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.wp-progress-fill {
+  transform-origin: left center;
+  animation: wp-progress-fill 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.wp-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-subtle) 25%,
+    var(--border-line) 50%,
+    var(--bg-subtle) 75%
+  );
+  background-size: 200% 100%;
+  animation: wp-shimmer 1.1s linear infinite;
+}
+
+.wp-topbar-active {
+  width: 35%;
+  background-color: var(--accent);
+  animation: wp-topbar-slide 900ms cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* Prevent mismatched transition flashes during instant light/dark toggle */
+.theme-switching,
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

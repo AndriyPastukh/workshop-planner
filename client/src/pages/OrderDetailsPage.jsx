@@ -315,7 +315,7 @@ export default function OrderDetailsPage() {
         />
         <StatCard
           label="До сплати"
-          value={<Money value={order.totalPrice} />}
+          moneyValue={order.totalPrice}
           hint={`Собівартість ${order.totalCost?.toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₴`}
         />
       </div>

@@ -296,7 +296,7 @@ export default function MaterialsPage() {
         <StatCard label="Позицій складу" value={summary.totalMaterials} hint="Активні матеріали" />
         <StatCard
           label="Вартість складу"
-          value={<Money value={summary.totalStockValue} />}
+          moneyValue={summary.totalStockValue}
           hint="За обліковими цінами"
         />
         <StatCard label="Малий залишок" value={summary.lowStockCount} hint="Доступно ≤ мін. норми" />

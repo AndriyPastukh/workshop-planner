@@ -366,7 +366,7 @@ export default function OrdersPage() {
         />
         <StatCard
           label="Сума активних"
-          value={<Money value={stats.activeTotal} />}
+          moneyValue={stats.activeTotal}
           hint="Очікувана виручка черги"
         />
       </div>

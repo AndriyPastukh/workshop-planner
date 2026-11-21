@@ -298,6 +298,7 @@ export async function previewPricing({ items, isRush = false }) {
 }
 
 async function generateOrderCode(tx) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(9202601)`;
   const year = new Date().getUTCFullYear();
   const prefix = `WP-${year}-`;
   const existing = await tx.order.findMany({

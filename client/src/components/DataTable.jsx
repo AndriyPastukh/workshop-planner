@@ -16,9 +16,9 @@ export function DataTable({
         <div className="divide-y divide-line">
           {[0, 1, 2, 3, 4].map((idx) => (
             <div key={idx} className="flex h-10 items-center gap-4 px-3">
-              <div className="h-3 w-20 rounded bg-subtle" />
-              <div className="h-3 flex-1 rounded bg-subtle" />
-              <div className="h-3 w-24 rounded bg-subtle" />
+              <div className="h-3 w-20 rounded wp-skeleton" />
+              <div className="h-3 flex-1 rounded wp-skeleton" />
+              <div className="h-3 w-24 rounded wp-skeleton" />
             </div>
           ))}
         </div>
@@ -53,11 +53,12 @@ export function DataTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-line">
-          {rows.map((row) => (
+          {rows.map((row, idx) => (
             <tr
               key={rowKey(row)}
               onClick={onRowClick ? () => onRowClick(row) : undefined}
-              className={`h-14 transition-colors ${
+              style={idx < 8 ? { animationDelay: `${idx * 24}ms` } : undefined}
+              className={`h-14 transition-colors duration-150 wp-row-enter ${
                 onRowClick ? 'cursor-pointer hover:bg-subtle/60' : 'hover:bg-subtle/40'
               }`}
             >
