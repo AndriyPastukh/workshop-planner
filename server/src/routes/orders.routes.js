@@ -51,6 +51,14 @@ const updateOrderSchema = z.object({
 
 const transitionSchema = z.object({
   status: statusEnum,
+  actualUsages: z
+    .array(
+      z.object({
+        orderItemId: z.string().min(1),
+        actualMaterialQty: z.number().nonnegative(),
+      })
+    )
+    .optional(),
 });
 
 const listQuerySchema = z.object({
@@ -105,7 +113,9 @@ router.patch(
   '/:id/status',
   validate({ body: transitionSchema }),
   asyncHandler(async (req, res) => {
-    const result = await transitionOrderStatus(req.params.id, req.body.status, req.user.id);
+    const result = await transitionOrderStatus(req.params.id, req.body.status, req.user.id, {
+      actualUsages: req.body.actualUsages,
+    });
     res.json(result);
   })
 );

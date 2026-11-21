@@ -24,7 +24,7 @@
 `confirmed` → `in_progress` | `cancelled`  
 `in_progress` → `done` | `cancelled`  
 `done`, `cancelled` — термінальні стани.  
-Перехід у `in_progress` атомарно списує матеріали зі складу й повертає `warnings` (`LOW_STOCK` / `INSUFFICIENT_STOCK`). Перехід у `cancelled` видаляє записи розкладу замовлення.
+Перехід у `confirmed` атомарно резервує матеріали (`reservedQty`); `in_progress` знімає резерв і списує матеріали зі складу (`consume`) із неблокуючими `warnings` (`LOW_STOCK` / `INSUFFICIENT_STOCK`); `cancelled` знімає резерв (`release`) і видаляє записи розкладу замовлення; `done` фіксує фактичну витрату (`actualUsages`) та записує відхилення у рухи `waste`.
 
 ## Ендпоінти
 
@@ -36,8 +36,10 @@
 | Machines | `GET /api/machines`, `GET /api/machines/:id` | auth | Список верстатів, календар змін, вікна ТО |
 | Machines | `POST /api/machines`, `PATCH /api/machines/:id`, `DELETE /api/machines/:id` | `owner` | Керування обладнанням |
 | Machines | `POST /api/machines/:id/maintenance`, `DELETE /api/machines/:id/maintenance/:windowId` | `owner` | Додавання/видалення вікна ТО |
-| Materials | `GET /api/materials`, `GET /api/materials/:id` | auth | Матеріали з прапорцем `isLowStock` та історією руху |
-| Materials | `POST /api/materials/:id/adjust-stock` | auth | Приймання або ручне списання залишку (`deltaQty`, `reason`) |
+| Materials | `GET /api/materials`, `GET /api/materials/:id` | auth | Склад (`stockQty`, `reservedQty`, `inWorkQty`, `availableQty`, `status`), прогноз дефіциту `shortages` та історія руху |
+| Materials | `POST /api/materials/:id/receipt` | auth | Оприбуткування матеріалу на склад (`qty > 0`, `comment`) |
+| Materials | `POST /api/materials/:id/adjust` | `owner` | Ручне коригування залишку (`deltaQty`, `comment`) із захистом від `< 0` |
+| Materials | `POST /api/materials/:id/adjust-stock` | auth/`owner` | Сумісний ендпоінт поповнення або owner-коригування |
 | Materials | `POST/PATCH/DELETE /api/materials...` | `owner` | Керування довідником матеріалів |
 | Customers | `GET /api/customers`, `GET /api/customers/:id` | auth | Клієнти, історія замовлень, загальна сума та середній чек |
 | Customers | `POST /api/customers`, `PATCH /api/customers/:id` | auth | Створення й оновлення клієнта |

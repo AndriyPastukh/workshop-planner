@@ -25,3 +25,4 @@ export {
   schedule,
 } from './scheduler.js';
 export { checkFeasibility } from './feasibility.js';
+export { forecastMaterialShortages } from './stockForecast.js';

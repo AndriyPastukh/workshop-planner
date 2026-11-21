@@ -3,6 +3,12 @@ import { calculateItemCost, calculateOrderTotals } from '../domain/index.js';
 import { badRequest, conflict, notFound } from '../lib/errors.js';
 import { logAudit } from './auditService.js';
 import { getSettings } from './settingsService.js';
+import {
+  consumeOrderMaterials,
+  finalizeOrderMaterials,
+  releaseOrderMaterials,
+  reserveOrderMaterials,
+} from './warehouseService.js';
 
 export const ORDER_TRANSITIONS = {
   draft: ['quoted', 'confirmed', 'cancelled'],
@@ -303,6 +309,10 @@ export async function createOrder(payload, userId = null) {
       include: ORDER_INCLUDE,
     });
 
+    if (initialStatus === 'confirmed') {
+      await reserveOrderMaterials(tx, created, userId);
+    }
+
     await logAudit(
       {
         userId,
@@ -313,6 +323,11 @@ export async function createOrder(payload, userId = null) {
       },
       tx
     );
+
+    if (initialStatus === 'confirmed') {
+      const refreshed = await tx.order.findUnique({ where: { id: created.id }, include: ORDER_INCLUDE });
+      return attachOrderPricingSummary(refreshed);
+    }
 
     return attachOrderPricingSummary(created);
   });
@@ -457,94 +472,48 @@ export async function updateOrder(id, patch, userId = null) {
 }
 
 /**
- * Transition order status through the validated state machine.
- * Automatically deducts material stock on transition to 'in_progress' and returns stock warnings.
+ * Transition order status through the validated state machine inside an ACID transaction.
+ * Atomically manages material reservations, consumptions, releases, waste, and non-blocking warnings.
  */
-export async function transitionOrderStatus(id, nextStatus, userId = null) {
-  const existing = await getOrderById(id);
-  const allowed = ORDER_TRANSITIONS[existing.status] ?? [];
-
-  if (!allowed.includes(nextStatus)) {
-    throw conflict(
-      `Неможливий перехід статусу: ${existing.status} → ${nextStatus}`,
-      'INVALID_STATUS_TRANSITION',
-      { from: existing.status, to: nextStatus, allowed }
-    );
-  }
-
+export async function transitionOrderStatus(id, nextStatus, userId = null, options = {}) {
   return prisma.$transaction(async (tx) => {
-    const warnings = [];
-
-    if (nextStatus === 'in_progress') {
-      for (const item of existing.items) {
-        const requiredQty =
-          item.plannedMaterialQty > 0
-            ? item.plannedMaterialQty
-            : Number((item.qty * item.usage * (1 + (item.material.wastePct ?? 0))).toFixed(3));
-
-        const current = await tx.material.findUnique({ where: { id: item.materialId } });
-        const deductQty = Number(Math.min(current.stockQty, requiredQty).toFixed(3));
-        const nextStockQty = Number((current.stockQty - deductQty).toFixed(3));
-        const shortageQty = Number((requiredQty - deductQty).toFixed(3));
-
-        const updatedMaterial = await tx.material.update({
-          where: { id: item.materialId },
-          data: { stockQty: nextStockQty },
-        });
-
-        await tx.orderItem.update({
-          where: { id: item.id },
-          data: { actualMaterialQty: deductQty },
-        });
-
-        if (deductQty > 0) {
-          await tx.materialStockMovement.create({
-            data: {
-              materialId: item.materialId,
-              orderId: existing.id,
-              orderItemId: item.id,
-              userId,
-              type: 'consume',
-              qty: deductQty,
-              comment: `Списано у виробництво (${existing.code})`,
-            },
-          });
-        }
-
-        const availableQty = Number((updatedMaterial.stockQty - updatedMaterial.reservedQty).toFixed(3));
-
-        if (shortageQty > 0) {
-          warnings.push({
-            code: 'INSUFFICIENT_STOCK',
-            materialId: updatedMaterial.id,
-            materialCode: updatedMaterial.code,
-            materialName: updatedMaterial.name,
-            unit: updatedMaterial.unit,
-            remainingQty: availableQty,
-            shortageQty,
-            minStockQty: updatedMaterial.minStockQty,
-            message: `Нестача матеріалу «${updatedMaterial.name}»: не вистачає ${shortageQty.toFixed(2)} ${updatedMaterial.unit}`,
-          });
-        } else if (availableQty <= updatedMaterial.minStockQty) {
-          warnings.push({
-            code: 'LOW_STOCK',
-            materialId: updatedMaterial.id,
-            materialCode: updatedMaterial.code,
-            materialName: updatedMaterial.name,
-            unit: updatedMaterial.unit,
-            remainingQty: availableQty,
-            minStockQty: updatedMaterial.minStockQty,
-            message: `Низький залишок «${updatedMaterial.name}»: доступно ${availableQty.toFixed(2)} ${updatedMaterial.unit} (мін. ${updatedMaterial.minStockQty})`,
-          });
-        }
-      }
+    const locked = await tx.$queryRaw`
+      SELECT id FROM orders WHERE id = ${id} FOR UPDATE
+    `;
+    if (locked.length === 0) {
+      throw notFound(`Замовлення ${id} не знайдено`);
     }
 
-    if (nextStatus === 'cancelled') {
+    const existing = await tx.order.findUnique({
+      where: { id },
+      include: ORDER_INCLUDE,
+    });
+    const allowed = ORDER_TRANSITIONS[existing.status] ?? [];
+
+    if (!allowed.includes(nextStatus)) {
+      throw conflict(
+        `Неможливий перехід статусу: ${existing.status} → ${nextStatus}`,
+        'INVALID_STATUS_TRANSITION',
+        { from: existing.status, to: nextStatus, allowed }
+      );
+    }
+
+    const warnings = [];
+
+    if (nextStatus === 'confirmed') {
+      warnings.push(...(await reserveOrderMaterials(tx, existing, userId)));
+    } else if (nextStatus === 'in_progress') {
+      warnings.push(...(await consumeOrderMaterials(tx, existing, userId)));
+    } else if (nextStatus === 'cancelled') {
       const itemIds = existing.items.map((item) => item.id);
       if (itemIds.length > 0) {
         await tx.scheduleEntry.deleteMany({ where: { orderItemId: { in: itemIds } } });
       }
+      await releaseOrderMaterials(tx, existing, userId);
+    } else if (nextStatus === 'done') {
+      warnings.push(
+        ...(await finalizeOrderMaterials(tx, existing, options.actualUsages ?? [], userId))
+      );
     }
 
     const order = await tx.order.update({

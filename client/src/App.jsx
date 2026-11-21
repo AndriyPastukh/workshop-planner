@@ -4,6 +4,7 @@ import { AppShell } from './components/AppShell.jsx';
 import { AuthProvider, useAuth } from './lib/auth.jsx';
 import { ThemeProvider } from './lib/theme.jsx';
 import LoginPage from './pages/LoginPage.jsx';
+import MaterialsPage from './pages/MaterialsPage.jsx';
 import OrdersPage from './pages/OrdersPage.jsx';
 import PlaceholderPage from './pages/PlaceholderPage.jsx';
 
@@ -74,10 +75,7 @@ export default function App() {
                 path="/materials"
                 element={
                   <ProtectedRoute>
-                    <PlaceholderPage
-                      title="Матеріали та склад"
-                      description="Облік залишків, списання у виробництво та прогноз дефіциту буде додано у Фазі 6."
-                    />
+                    <MaterialsPage />
                   </ProtectedRoute>
                 }
               />
