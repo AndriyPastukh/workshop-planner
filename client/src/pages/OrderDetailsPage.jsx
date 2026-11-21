@@ -5,10 +5,11 @@ import {
   CheckCircle2,
   ExternalLink,
   Pencil,
+  Printer,
   Trash2,
   XCircle,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ConfirmDialog, Modal } from '../components/Modal.jsx';
 import { Money } from '../components/Money.jsx';
@@ -17,7 +18,7 @@ import { PageHeader } from '../components/PageHeader.jsx';
 import { PricingBreakdownTable } from '../components/PricingBreakdownTable.jsx';
 import { StatCard } from '../components/StatCard.jsx';
 import { StatusBadge } from '../components/StatusBadge.jsx';
-import { ordersApi } from '../lib/api.js';
+import { ordersApi, settingsApi } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
 import {
   MACHINE_TYPE_LABELS,
@@ -62,6 +63,26 @@ export default function OrderDetailsPage() {
   const [actualInputs, setActualInputs] = useState({});
   const [warningsBanner, setWarningsBanner] = useState([]);
   const [actionError, setActionError] = useState('');
+  const [printMode, setPrintMode] = useState('quote');
+
+  useEffect(() => {
+    const resetMode = () => setPrintMode('quote');
+    window.addEventListener('afterprint', resetMode);
+    return () => window.removeEventListener('afterprint', resetMode);
+  }, []);
+
+  const { data: settingsData } = useQuery({
+    queryKey: ['settings'],
+    queryFn: settingsApi.get,
+  });
+  const workshopName = settingsData?.settings?.workshopName ?? 'Майстерня цифрового виробництва «ТехноЦех»';
+
+  const triggerPrint = (mode) => {
+    setPrintMode(mode);
+    setTimeout(() => {
+      window.print();
+    }, 60);
+  };
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['order', id],
@@ -172,24 +193,43 @@ export default function OrderDetailsPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <Link
-          to="/orders"
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted hover:text-ink"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          До замовлень
-        </Link>
-      </div>
+    <>
+      <div className="no-print space-y-6">
+        <div>
+          <Link
+            to="/orders"
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted hover:text-ink"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            До замовлень
+          </Link>
+        </div>
 
-      <PageHeader
-        title={order.code}
-        subtitle={`${order.customer?.name ?? 'Клієнт'}${order.customer?.company ? ` · ${order.customer.company}` : ''}${order.customer?.phone ? ` · ${order.customer.phone}` : ''}`}
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            {order.isRush ? <StatusBadge status="rush" /> : null}
-            <StatusBadge status={order.status} />
+        <PageHeader
+          title={order.code}
+          subtitle={`${order.customer?.name ?? 'Клієнт'}${order.customer?.company ? ` · ${order.customer.company}` : ''}${order.customer?.phone ? ` · ${order.customer.phone}` : ''}`}
+          actions={
+            <div className="flex flex-wrap items-center gap-2">
+              {order.isRush ? <StatusBadge status="rush" /> : null}
+              <StatusBadge status={order.status} />
+
+              <button
+                type="button"
+                onClick={() => triggerPrint('quote')}
+                className="inline-flex h-10 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3.5 text-xs font-medium text-ink hover:bg-subtle"
+              >
+                <Printer className="h-3.5 w-3.5" />
+                <span>КП (PDF)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => triggerPrint('workorder')}
+                className="inline-flex h-10 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3.5 text-xs font-medium text-ink hover:bg-subtle"
+              >
+                <Printer className="h-3.5 w-3.5" />
+                <span>Наряд (PDF)</span>
+              </button>
 
             {canEdit ? (
               <button
@@ -643,6 +683,178 @@ export default function OrderDetailsPage() {
           }
         }}
       />
-    </div>
+      </div>
+
+      {/* Printable A4 Form: Commercial Proposal ("КП") or Shop-Floor Work Order ("Наряд") */}
+      <article className="wp-print-only space-y-5 text-xs text-black">
+        <header className="flex items-start justify-between border-b-2 border-black pb-3">
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-neutral-600">{workshopName}</div>
+            <h1 className="mt-1 text-xl font-bold">
+              {printMode === 'workorder'
+                ? `Наряд-завдання № ${order.code}`
+                : `Комерційна пропозиція № ${order.code}`}
+            </h1>
+          </div>
+          <div className="text-right font-mono text-[11px]">
+            <div>Дата: {formatDateTime(new Date())}</div>
+            <div>Дедлайн: {formatDateTime(order.deadline)}</div>
+            {printMode === 'workorder' ? (
+              <div>
+                Пріоритет: P{order.priority}
+                {order.isRush ? ' · ТЕРМІНОВО (RUSH)' : ''}
+              </div>
+            ) : null}
+          </div>
+        </header>
+
+        <section className="grid grid-cols-2 gap-4 rounded border border-neutral-300 p-3">
+          <div>
+            <div className="text-[10px] uppercase text-neutral-500">Замовник</div>
+            <div className="mt-0.5 font-semibold">{order.customer?.name ?? '—'}</div>
+            {order.customer?.company ? <div>{order.customer.company}</div> : null}
+          </div>
+          <div>
+            <div className="text-[10px] uppercase text-neutral-500">Контакти та статус</div>
+            <div className="mt-0.5">
+              {order.customer?.phone || '—'} · {order.customer?.email || '—'}
+            </div>
+            <div>Статус: {ORDER_STATUS_LABELS[order.status] ?? order.status}</div>
+          </div>
+        </section>
+
+        {printMode === 'workorder' ? (
+          <>
+            <table className="w-full border-collapse border border-neutral-400">
+              <thead>
+                <tr className="bg-neutral-100 text-left">
+                  <th className="border border-neutral-400 px-2.5 py-2">Позиція</th>
+                  <th className="border border-neutral-400 px-2.5 py-2">Обладнання / слот</th>
+                  <th className="border border-neutral-400 px-2.5 py-2">Матеріал</th>
+                  <th className="border border-neutral-400 px-2.5 py-2 text-right">К-сть</th>
+                  <th className="border border-neutral-400 px-2.5 py-2 text-right">План витрати</th>
+                  <th className="border border-neutral-400 px-2.5 py-2 text-right">Норма часу</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(order.items ?? []).map((item) => {
+                  const unit = item.material?.unit ?? 'од.';
+                  const planned = item.materialSummary?.plannedQty ?? item.plannedMaterialQty ?? 0;
+                  const slotText =
+                    item.scheduleEntries?.length > 0
+                      ? item.scheduleEntries
+                          .map(
+                            (se) =>
+                              `${se.machine?.name ?? ''} (${formatDateTime(se.start)}–${formatDateTime(se.end)})`
+                          )
+                          .join('; ')
+                      : MACHINE_TYPE_LABELS[item.machineType] ?? item.machineType;
+                  const totalH = (item.qty * item.runTimeH + (item.prepH ?? 0) + (item.postProcessH ?? 0)).toFixed(2);
+                  return (
+                    <tr key={item.id}>
+                      <td className="border border-neutral-400 px-2.5 py-2 font-medium">
+                        {item.title}
+                      </td>
+                      <td className="border border-neutral-400 px-2.5 py-2">{slotText}</td>
+                      <td className="border border-neutral-400 px-2.5 py-2 font-mono">
+                        {item.material?.name} ({item.material?.code})
+                      </td>
+                      <td className="border border-neutral-400 px-2.5 py-2 text-right font-mono">
+                        {item.qty} шт
+                      </td>
+                      <td className="border border-neutral-400 px-2.5 py-2 text-right font-mono">
+                        {fmtQty(planned, unit)}
+                      </td>
+                      <td className="border border-neutral-400 px-2.5 py-2 text-right font-mono">
+                        {totalH} год (setup {item.setupMin ?? 0} хв)
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            <section className="space-y-1.5 rounded border border-neutral-400 p-3">
+              <div className="font-semibold">Контрольний лист цеху:</div>
+              <div>[ ] Перевірено наявність матеріалу та колір/інструмент</div>
+              <div>[ ] Виконано переналаштування та прогрів обладнання</div>
+              <div>[ ] Завершено обробку, знято підпори / виконано постобробку</div>
+              <div>[ ] Зафіксовано фактичну витрату та контроль геометрії</div>
+            </section>
+          </>
+        ) : (
+          <>
+            <table className="w-full border-collapse border border-neutral-400">
+              <thead>
+                <tr className="bg-neutral-100 text-left">
+                  <th className="border border-neutral-400 px-2.5 py-2">№</th>
+                  <th className="border border-neutral-400 px-2.5 py-2">Найменування виробу</th>
+                  <th className="border border-neutral-400 px-2.5 py-2">Технологія</th>
+                  <th className="border border-neutral-400 px-2.5 py-2">Матеріал</th>
+                  <th className="border border-neutral-400 px-2.5 py-2 text-right">К-сть</th>
+                  <th className="border border-neutral-400 px-2.5 py-2 text-right">Ціна / од.</th>
+                  <th className="border border-neutral-400 px-2.5 py-2 text-right">Сума</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(order.items ?? []).map((item, idx) => (
+                  <tr key={item.id}>
+                    <td className="border border-neutral-400 px-2.5 py-2 font-mono">{idx + 1}</td>
+                    <td className="border border-neutral-400 px-2.5 py-2 font-medium">
+                      {item.title}
+                    </td>
+                    <td className="border border-neutral-400 px-2.5 py-2">
+                      {MACHINE_TYPE_LABELS[item.machineType] ?? item.machineType}
+                    </td>
+                    <td className="border border-neutral-400 px-2.5 py-2">
+                      {item.material?.name}
+                    </td>
+                    <td className="border border-neutral-400 px-2.5 py-2 text-right font-mono">
+                      {item.qty} шт
+                    </td>
+                    <td className="border border-neutral-400 px-2.5 py-2 text-right font-mono">
+                      <Money value={item.qty > 0 ? item.price / item.qty : item.price} />
+                    </td>
+                    <td className="border border-neutral-400 px-2.5 py-2 text-right font-mono font-semibold">
+                      <Money value={item.price} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div className="ml-auto w-72 space-y-1 border-t border-neutral-400 pt-2 font-mono">
+              {order.pricingSummary ? (
+                <>
+                  <div className="flex justify-between">
+                    <span>Сума до оподаткування:</span>
+                    <Money value={order.pricingSummary.priceBeforeTax} />
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Податок:</span>
+                    <Money value={order.pricingSummary.tax} />
+                  </div>
+                </>
+              ) : null}
+              <div className="flex justify-between border-t border-black pt-1.5 text-sm font-bold">
+                <span>Разом до сплати:</span>
+                <Money value={order.totalPrice} />
+              </div>
+            </div>
+          </>
+        )}
+
+        {order.notes ? (
+          <div className="border-t border-neutral-300 pt-2">
+            <strong>Примітки:</strong> {order.notes}
+          </div>
+        ) : null}
+
+        <footer className="flex justify-between pt-8 text-[11px] text-neutral-700">
+          <div>Відповідальний: _______________________</div>
+          <div>Підпис: _______________________</div>
+        </footer>
+      </article>
+    </>
   );
 }

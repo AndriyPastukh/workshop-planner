@@ -13,6 +13,7 @@ import OrderDetailsPage from './pages/OrderDetailsPage.jsx';
 import OrdersPage from './pages/OrdersPage.jsx';
 import PlannerPage from './pages/PlannerPage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
+import WhatIfPage from './pages/WhatIfPage.jsx';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -75,6 +76,14 @@ export default function App() {
                 element={
                   <ProtectedRoute>
                     <PlannerPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/what-if"
+                element={
+                  <ProtectedRoute>
+                    <WhatIfPage />
                   </ProtectedRoute>
                 }
               />

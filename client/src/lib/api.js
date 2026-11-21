@@ -132,8 +132,10 @@ export const machinesApi = {
 export const scheduleApi = {
   get: () => apiRequest('/schedule'),
   compare: () => apiRequest('/schedule/compare'),
-  rebuild: (rule = 'ATCS') => apiRequest(`/schedule/rebuild?rule=${rule}`, { method: 'POST' }),
+  rebuild: (rule = 'ATCS', options = {}) =>
+    apiRequest('/schedule/rebuild', { method: 'POST', body: { rule, ...options } }),
   updateEntry: (id, body) => apiRequest(`/schedule/${id}`, { method: 'PATCH', body }),
+  whatIf: (scenario) => apiRequest('/schedule/what-if', { method: 'POST', body: scenario }),
 };
 
 export const quotesApi = {

@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, CalendarClock, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { customersApi, materialsApi, ordersApi, pricingApi, templatesApi } from '../lib/api.js';
+import { customersApi, materialsApi, ordersApi, pricingApi, quotesApi, templatesApi } from '../lib/api.js';
+import { formatDateTime } from '../lib/format.js';
 import { FormField } from './FormField.jsx';
 import { Modal } from './Modal.jsx';
 import { PricingBreakdownTable } from './PricingBreakdownTable.jsx';
@@ -67,6 +68,8 @@ export function OrderFormModal({ open, onClose, order = null, onSaved }) {
 
   const [previewData, setPreviewData] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [feasResult, setFeasResult] = useState(null);
+  const [feasError, setFeasError] = useState('');
 
   // Sync form state whenever modal opens or target order changes
   useEffect(() => {
@@ -74,6 +77,8 @@ export function OrderFormModal({ open, onClose, order = null, onSaved }) {
       return;
     }
     setSubmitError('');
+    setFeasResult(null);
+    setFeasError('');
     if (order) {
       setCustomerId(order.customerId ?? '');
       setDeadline(toLocalDateTimeInput(order.deadline));
@@ -193,6 +198,26 @@ export function OrderFormModal({ open, onClose, order = null, onSaved }) {
     },
   });
 
+  const feasibilityMutation = useMutation({
+    mutationFn: () =>
+      quotesApi.feasibility({
+        deadline: new Date(deadline).toISOString(),
+        priority: Number(priority) || 1,
+        items: (previewPayload?.items ?? []).map((it) => ({
+          materialId: it.materialId,
+          qty: it.qty,
+          runTimeH: it.runTimeH,
+        })),
+      }),
+    onSuccess: (data) => {
+      setFeasError('');
+      setFeasResult(data);
+    },
+    onError: (err) => {
+      setFeasError(err.message || 'Не вдалося перевірити чергу');
+    },
+  });
+
   const updateItem = (idx, patch) => {
     setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
   };
@@ -272,12 +297,27 @@ export function OrderFormModal({ open, onClose, order = null, onSaved }) {
           ) : null}
 
           <FormField label="Дедлайн" required>
-            <input
-              type="datetime-local"
-              value={deadline}
-              onChange={(e) => setDeadline(e.target.value)}
-              className={INPUT_CLASS}
-            />
+            <div className="flex items-center gap-1.5">
+              <input
+                type="datetime-local"
+                value={deadline}
+                onChange={(e) => {
+                  setDeadline(e.target.value);
+                  setFeasResult(null);
+                }}
+                className={INPUT_CLASS}
+              />
+              <button
+                type="button"
+                disabled={feasibilityMutation.isPending || !previewPayload || !deadline}
+                onClick={() => feasibilityMutation.mutate()}
+                title="Перевірити чергу («Чи встигну?»)"
+                className="inline-flex h-9 shrink-0 items-center gap-1 rounded-xl border border-line-strong bg-surface px-2.5 text-xs font-medium text-ink hover:bg-subtle disabled:opacity-50"
+              >
+                <CalendarClock className="h-3.5 w-3.5 text-accent" />
+                <span className="hidden sm:inline">Чи встигну?</span>
+              </button>
+            </div>
           </FormField>
 
           <FormField label="Пріоритет (1–5)">
@@ -317,6 +357,74 @@ export function OrderFormModal({ open, onClose, order = null, onSaved }) {
             </label>
           </FormField>
         </div>
+
+        {feasError ? (
+          <div
+            role="alert"
+            style={{
+              backgroundColor: 'var(--st-danger-bg)',
+              color: 'var(--st-danger-fg)',
+              borderColor: 'var(--st-danger-bd)',
+            }}
+            className="rounded-xl border px-3 py-2 text-xs"
+          >
+            {feasError}
+          </div>
+        ) : null}
+
+        {feasResult ? (
+          <div
+            className="space-y-2 rounded-2xl border p-3 text-xs"
+            style={{
+              backgroundColor: feasResult.meetsDeadline
+                ? 'var(--st-progress-bg)'
+                : 'var(--st-quoted-bg)',
+              borderColor: feasResult.meetsDeadline
+                ? 'var(--st-progress-bd)'
+                : 'var(--st-quoted-bd)',
+              color: feasResult.meetsDeadline ? 'var(--st-progress-fg)' : 'var(--st-quoted-fg)',
+            }}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 font-semibold">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                <span>
+                  {feasResult.meetsDeadline
+                    ? 'Встигаємо у стандартній черзі'
+                    : `Рекомендація: ${feasResult.recommendation}`}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {!isRush && feasResult.meetsDeadlineWithRush ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsRush(true)}
+                    className="rounded-full border border-current/30 bg-surface/80 px-2.5 py-0.5 text-[11px] font-medium text-ink hover:bg-surface"
+                  >
+                    Увімкнути RUSH
+                  </button>
+                ) : null}
+                {feasResult.suggestedDeadline && !feasResult.meetsDeadline ? (
+                  <button
+                    type="button"
+                    onClick={() => setDeadline(toLocalDateTimeInput(feasResult.suggestedDeadline))}
+                    className="rounded-full border border-current/30 bg-surface/80 px-2.5 py-0.5 text-[11px] font-medium text-ink hover:bg-surface"
+                  >
+                    Підставити дедлайн ({formatDateTime(feasResult.suggestedDeadline)})
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            <div className="font-mono text-[11px]">
+              Найраніше завершення: <strong>{formatDateTime(feasResult.earliestFinish)}</strong>
+              {feasResult.newlyDelayedOrders?.length > 0 ? (
+                <>
+                  {' · '}Ризик зсуву: {feasResult.newlyDelayedOrders.map((o) => o.orderCode).join(', ')}
+                </>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
 
         <div className="space-y-2.5">
           <div className="flex items-center justify-between">

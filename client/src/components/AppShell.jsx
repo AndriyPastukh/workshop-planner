@@ -9,6 +9,7 @@ import {
   Moon,
   Package,
   Settings,
+  SlidersHorizontal,
   Sun,
   Users,
 } from 'lucide-react';
@@ -21,6 +22,7 @@ const NAV_ITEMS = [
   { to: '/', label: 'Огляд', icon: LayoutDashboard },
   { to: '/orders', label: 'Замовлення', icon: ClipboardList },
   { to: '/planner', label: 'Планувальник', icon: CalendarRange },
+  { to: '/what-if', label: 'Що якщо?', icon: SlidersHorizontal },
   { to: '/machines', label: 'Верстати', icon: Cpu },
   { to: '/materials', label: 'Матеріали', icon: Package },
   { to: '/customers', label: 'Клієнти', icon: Users },
@@ -75,7 +77,7 @@ export function AppShell({ children }) {
         {isFetching > 0 ? <div className="h-full wp-topbar-active" /> : null}
       </div>
 
-      <header className="sticky top-0 z-30 w-full px-2.5 py-3 sm:px-5 sm:py-5">
+      <header className="sticky top-0 z-30 w-full px-2.5 py-3 sm:px-5 sm:py-5 print:hidden">
         <div className="mx-auto flex w-full max-w-full items-center justify-start gap-1.5 overflow-x-auto py-1 sm:w-max sm:justify-center sm:gap-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <nav
             className="relative flex shrink-0 gap-0.5 sm:gap-1 rounded-full bg-surface p-1 sm:p-1.5 shadow-pill"

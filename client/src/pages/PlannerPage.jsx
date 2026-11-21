@@ -1,5 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CalendarClock, Lock, Play, RefreshCw, Unlock } from 'lucide-react';
+import {
+  AlertTriangle,
+  CalendarClock,
+  Download,
+  Lock,
+  Play,
+  Printer,
+  RefreshCw,
+  SlidersHorizontal,
+  Unlock,
+} from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { DataTable } from '../components/DataTable.jsx';
@@ -10,6 +20,13 @@ import { StatCard } from '../components/StatCard.jsx';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { materialsApi, quotesApi, scheduleApi } from '../lib/api.js';
 import { MACHINE_TYPE_LABELS, formatDateTime, formatDuration } from '../lib/format.js';
+import {
+  buildScheduleCsv,
+  checkManualMoveConflict,
+  computeGanttHorizon,
+  downloadCsvFile,
+  layoutGanttLane,
+} from '../lib/gantt.js';
 
 const RULES = [
   { key: 'ATCS', label: 'ATCS (оптимальний)' },
@@ -29,6 +46,7 @@ export default function PlannerPage() {
   const queryClient = useQueryClient();
 
   const [selectedRule, setSelectedRule] = useState('ATCS');
+  const [enableBatchSplit, setEnableBatchSplit] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [moveStart, setMoveStart] = useState('');
   const [moveMachineId, setMoveMachineId] = useState('');
@@ -69,7 +87,8 @@ export default function PlannerPage() {
   }, [feasibilityOpen, feasMaterialId, materials]);
 
   const rebuildMutation = useMutation({
-    mutationFn: (rule) => scheduleApi.rebuild(rule),
+    mutationFn: ({ rule, batchSplit }) =>
+      scheduleApi.rebuild(rule, { enableBatchSplit: Boolean(batchSplit) }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['schedule'] });
       queryClient.invalidateQueries({ queryKey: ['analytics'] });
@@ -109,35 +128,8 @@ export default function PlannerPage() {
       }),
   });
 
-  // Compute timeline bounds for pure CSS Grid Gantt
-  const horizon = useMemo(() => {
-    let minMs = Infinity;
-    let maxMs = -Infinity;
-    for (const e of entries) {
-      minMs = Math.min(minMs, Date.parse(e.setupStart));
-      maxMs = Math.max(maxMs, Date.parse(e.end));
-    }
-    for (const m of machines) {
-      for (const w of m.maintenanceWindows ?? []) {
-        const wStart = Date.parse(w.start);
-        const wEnd = Date.parse(w.end);
-        if (entries.length === 0 || (wStart <= maxMs && wEnd >= minMs)) {
-          minMs = Math.min(minMs, wStart);
-          maxMs = Math.max(maxMs, wEnd);
-        }
-      }
-    }
-    if (!Number.isFinite(minMs) || !Number.isFinite(maxMs)) {
-      const now = Date.now();
-      return { minMs: now, maxMs: now + 8 * 3600_000, spanMs: 8 * 3600_000, ticks: [] };
-    }
-    const spanMs = Math.max(maxMs - minMs, 8 * 3600_000);
-    const ticks = [0, 0.25, 0.5, 0.75, 1].map((frac) => ({
-      pct: frac * 100,
-      label: formatDateTime(new Date(minMs + spanMs * frac)),
-    }));
-    return { minMs, maxMs: minMs + spanMs, spanMs, ticks };
-  }, [entries, machines]);
+  // Compute timeline bounds and "Now" indicator via pure client gantt.js helper
+  const horizon = useMemo(() => computeGanttHorizon(entries, machines), [entries, machines]);
 
   const openInspector = (entry) => {
     setSlotError('');
@@ -151,6 +143,20 @@ export default function PlannerPage() {
     const reqType = selectedEntry.orderItem?.machineType;
     return machines.filter((m) => m.type === reqType);
   }, [machines, selectedEntry]);
+
+  const moveConflictReport = useMemo(() => {
+    if (!selectedEntry || !moveStart) {
+      return { hasHardConflict: false, conflicts: [] };
+    }
+    const targetMachine = machines.find((m) => m.id === moveMachineId) ?? selectedEntry.machine;
+    return checkManualMoveConflict({
+      entry: selectedEntry,
+      targetMachine,
+      proposedStart: new Date(moveStart),
+      siblingEntries: entries,
+      maintenanceWindows: targetMachine?.maintenanceWindows ?? [],
+    });
+  }, [selectedEntry, moveMachineId, moveStart, machines, entries]);
 
   const strategies = compareData?.strategies ?? {};
 
@@ -167,6 +173,14 @@ export default function PlannerPage() {
             <span className="font-mono text-[10.5px] text-ink-muted">
               {row.orderItem?.material?.code}
             </span>
+            {row.batchQty != null ? (
+              <span
+                className="rounded px-1.5 py-0.5 font-mono text-[10px] font-medium text-accent"
+                style={{ backgroundColor: 'var(--accent-soft)' }}
+              >
+                П{row.batchIndex} · {row.batchQty} шт
+              </span>
+            ) : null}
           </div>
           <div className="truncate text-xs text-ink-secondary">{row.orderItem?.title}</div>
         </div>
@@ -229,7 +243,7 @@ export default function PlannerPage() {
         count={entries.length}
         subtitle="Календарна черга верстатів із переналаштуваннями (changeover) та оптимізацією ATCS"
         actions={
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="no-print flex flex-wrap items-center gap-2">
             <select
               value={selectedRule}
               onChange={(e) => setSelectedRule(e.target.value)}
@@ -242,13 +256,26 @@ export default function PlannerPage() {
                 </option>
               ))}
             </select>
+            <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border border-line-strong bg-surface px-3.5 text-xs font-medium text-ink">
+              <input
+                type="checkbox"
+                checked={enableBatchSplit}
+                onChange={(e) => setEnableBatchSplit(e.target.checked)}
+                className="accent-[var(--accent)]"
+              />
+              <span>Розбиття партій</span>
+            </label>
             <button
               type="button"
               disabled={rebuildMutation.isPending}
-              onClick={() => rebuildMutation.mutate(selectedRule)}
+              onClick={() =>
+                rebuildMutation.mutate({ rule: selectedRule, batchSplit: enableBatchSplit })
+              }
               className="inline-flex h-10 items-center gap-1.5 rounded-full bg-cta px-4 text-xs font-medium text-on-cta transition-opacity hover:opacity-90 disabled:opacity-50"
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${rebuildMutation.isPending ? 'animate-spin' : ''}`} />
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${rebuildMutation.isPending ? 'animate-spin' : ''}`}
+              />
               <span>Перепланувати</span>
             </button>
             <button
@@ -257,10 +284,39 @@ export default function PlannerPage() {
                 feasibilityMutation.reset();
                 setFeasibilityOpen(true);
               }}
-              className="inline-flex h-10 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-4 text-xs font-medium text-ink hover:bg-subtle"
+              className="inline-flex h-10 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3.5 text-xs font-medium text-ink hover:bg-subtle"
             >
               <CalendarClock className="h-3.5 w-3.5" />
               <span>Чи встигну?</span>
+            </button>
+            <Link
+              to="/what-if"
+              className="inline-flex h-10 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3.5 text-xs font-medium text-ink hover:bg-subtle"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              <span>Що якщо?</span>
+            </Link>
+            <button
+              type="button"
+              disabled={entries.length === 0}
+              onClick={() =>
+                downloadCsvFile(
+                  `schedule-${selectedRule.toLowerCase()}.csv`,
+                  buildScheduleCsv(entries)
+                )
+              }
+              className="inline-flex h-10 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3.5 text-xs font-medium text-ink hover:bg-subtle disabled:opacity-50"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>Експорт CSV</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="inline-flex h-10 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3.5 text-xs font-medium text-ink hover:bg-subtle"
+            >
+              <Printer className="h-3.5 w-3.5" />
+              <span>Друк / PDF</span>
             </button>
           </div>
         }
@@ -356,6 +412,14 @@ export default function PlannerPage() {
                     {tick.label}
                   </span>
                 ))}
+                {horizon.nowPct != null ? (
+                  <span
+                    className="absolute -bottom-0.5 -translate-x-1/2 font-mono text-[9.5px] font-semibold text-accent"
+                    style={{ left: `${horizon.nowPct}%` }}
+                  >
+                    Зараз
+                  </span>
+                ) : null}
               </div>
             </div>
 
@@ -369,6 +433,11 @@ export default function PlannerPage() {
               machines.map((machine) => {
                 const mEntries = entries.filter((e) => e.machineId === machine.id);
                 const maintWindows = machine.maintenanceWindows ?? [];
+                const { maintenanceBars, entryBars } = layoutGanttLane(
+                  mEntries,
+                  maintWindows,
+                  horizon
+                );
                 return (
                   <div
                     key={machine.id}
@@ -382,70 +451,64 @@ export default function PlannerPage() {
                     </div>
 
                     <div className="relative h-11 overflow-hidden rounded-xl border border-line bg-subtle/40">
+                      {horizon.nowPct != null ? (
+                        <div
+                          aria-hidden="true"
+                          className="pointer-events-none absolute inset-y-0 z-20 w-0.5"
+                          style={{
+                            left: `${horizon.nowPct}%`,
+                            backgroundColor: 'var(--accent)',
+                          }}
+                        />
+                      ) : null}
+
                       {/* Maintenance intervals */}
-                      {maintWindows.map((w) => {
-                        const s = Math.max(Date.parse(w.start), horizon.minMs);
-                        const e = Math.min(Date.parse(w.end), horizon.maxMs);
-                        if (e <= s) return null;
-                        const left = ((s - horizon.minMs) / horizon.spanMs) * 100;
-                        const width = Math.max(1, ((e - s) / horizon.spanMs) * 100);
-                        return (
-                          <div
-                            key={w.id}
-                            title={`ТО: ${w.title} (${formatDateTime(w.start)}–${formatDateTime(w.end)})`}
-                            className="absolute inset-y-1 rounded bg-subtle bg-setup-hatch border border-dashed border-line-strong opacity-80"
-                            style={{ left: `${left}%`, width: `${width}%` }}
-                          />
-                        );
-                      })}
+                      {maintenanceBars.map(({ window: w, leftPct, widthPct }) => (
+                        <div
+                          key={w.id}
+                          title={`ТО: ${w.title} (${formatDateTime(w.start)}–${formatDateTime(w.end)})`}
+                          className="bg-setup-hatch absolute inset-y-1 rounded border border-dashed border-line-strong bg-subtle opacity-80"
+                          style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+                        />
+                      ))}
 
                       {/* Scheduled entries: hatched setup prefix + processing body */}
-                      {mEntries.map((entry) => {
-                        const setupStartMs = Date.parse(entry.setupStart);
-                        const endMs = Date.parse(entry.end);
-                        const totalEntryMs = Math.max(60_000, endMs - setupStartMs);
-                        const setupRatio =
-                          entry.setupMin > 0
-                            ? Math.min(0.65, (entry.setupMin * 60_000) / totalEntryMs)
-                            : 0;
-                        const leftPct = Math.max(
-                          0,
-                          ((setupStartMs - horizon.minMs) / horizon.spanMs) * 100
-                        );
-                        const widthPct = Math.max(1.5, (totalEntryMs / horizon.spanMs) * 100);
-                        const isLate = entry.tardinessMin > 0;
-                        return (
-                          <button
-                            key={entry.id}
-                            type="button"
-                            onClick={() => openInspector(entry)}
-                            title={`${entry.orderItem?.order?.code} · ${entry.orderItem?.title}\nСтарт: ${formatDateTime(entry.start)}\nSetup: ${entry.setupMin} хв, робота: ${entry.processingMin} хв`}
-                            className="group absolute inset-y-1 flex overflow-hidden rounded-lg border text-left transition-transform hover:z-10 hover:scale-[1.01]"
-                            style={{
-                              left: `${leftPct}%`,
-                              width: `${widthPct}%`,
-                              backgroundColor: isLate
-                                ? 'var(--st-danger-bg)'
-                                : 'var(--st-confirmed-bg)',
-                              borderColor: isLate
-                                ? 'var(--st-danger-fg)'
-                                : 'var(--st-confirmed-fg)',
-                              color: isLate ? 'var(--st-danger-fg)' : 'var(--st-confirmed-fg)',
-                            }}
-                          >
-                            {setupRatio > 0 ? (
-                              <span
-                                className="h-full shrink-0 border-r border-current/25 bg-setup-hatch"
-                                style={{ width: `${Math.round(setupRatio * 100)}%` }}
-                              />
+                      {entryBars.map(({ entry, leftPct, widthPct, setupPct, isLate, batchLabel }) => (
+                        <button
+                          key={entry.id}
+                          type="button"
+                          onClick={() => openInspector(entry)}
+                          title={`${entry.orderItem?.order?.code} · ${entry.orderItem?.title}${batchLabel ? ` (${batchLabel}: ${entry.batchQty} шт)` : ''}\nСтарт: ${formatDateTime(entry.start)}\nSetup: ${entry.setupMin} хв, робота: ${entry.processingMin} хв`}
+                          className="group absolute inset-y-1 flex overflow-hidden rounded-lg border text-left transition-transform hover:z-10 hover:scale-[1.01]"
+                          style={{
+                            left: `${leftPct}%`,
+                            width: `${widthPct}%`,
+                            backgroundColor: isLate
+                              ? 'var(--st-danger-bg)'
+                              : 'var(--st-confirmed-bg)',
+                            borderColor: isLate
+                              ? 'var(--st-danger-fg)'
+                              : 'var(--st-confirmed-fg)',
+                            color: isLate ? 'var(--st-danger-fg)' : 'var(--st-confirmed-fg)',
+                          }}
+                        >
+                          {setupPct > 0 ? (
+                            <span
+                              className="bg-setup-hatch h-full shrink-0 border-r border-current/25"
+                              style={{ width: `${setupPct}%` }}
+                            />
+                          ) : null}
+                          <span className="flex min-w-0 flex-1 items-center gap-1 px-1.5 font-mono text-[10px] font-semibold">
+                            {entry.locked ? <Lock className="h-2.5 w-2.5 shrink-0" /> : null}
+                            <span className="truncate">{entry.orderItem?.order?.code}</span>
+                            {batchLabel ? (
+                              <span className="shrink-0 rounded bg-current/15 px-1 text-[9px]">
+                                {batchLabel}
+                              </span>
                             ) : null}
-                            <span className="flex min-w-0 flex-1 items-center gap-1 px-1.5 font-mono text-[10px] font-semibold">
-                              {entry.locked ? <Lock className="h-2.5 w-2.5 shrink-0" /> : null}
-                              <span className="truncate">{entry.orderItem?.order?.code}</span>
-                            </span>
-                          </button>
-                        );
-                      })}
+                          </span>
+                        </button>
+                      ))}
                     </div>
                   </div>
                 );
@@ -512,7 +575,7 @@ export default function PlannerPage() {
                           disabled={rebuildMutation.isPending}
                           onClick={() => {
                             setSelectedRule(rule);
-                            rebuildMutation.mutate(rule);
+                            rebuildMutation.mutate({ rule, batchSplit: enableBatchSplit });
                           }}
                           className="inline-flex items-center gap-1 rounded border border-line-strong bg-surface px-2.5 py-1 text-[11px] font-medium text-ink hover:border-accent hover:text-accent"
                         >
@@ -578,7 +641,9 @@ export default function PlannerPage() {
                 </button>
                 <button
                   type="button"
-                  disabled={updateSlotMutation.isPending || !moveStart}
+                  disabled={
+                    updateSlotMutation.isPending || !moveStart || moveConflictReport.hasHardConflict
+                  }
                   onClick={() =>
                     updateSlotMutation.mutate({
                       id: selectedEntry.id,
@@ -612,6 +677,24 @@ export default function PlannerPage() {
                 {slotError}
               </div>
             ) : null}
+
+            {moveConflictReport.conflicts.map((c, idx) => (
+              <div
+                key={`${c.code}-${idx}`}
+                role="status"
+                style={{
+                  backgroundColor:
+                    c.severity === 'error' ? 'var(--st-danger-bg)' : 'var(--st-quoted-bg)',
+                  color: c.severity === 'error' ? 'var(--st-danger-fg)' : 'var(--st-quoted-fg)',
+                  borderColor:
+                    c.severity === 'error' ? 'var(--st-danger-bd)' : 'var(--st-quoted-bd)',
+                }}
+                className="flex items-start gap-2 rounded-xl border px-3 py-2 text-[11px]"
+              >
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{c.message}</span>
+              </div>
+            ))}
 
             <div className="flex items-center justify-between rounded-xl border border-line bg-subtle/40 px-3 py-2">
               <div>
