@@ -1,0 +1,266 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  owner
+  operator
+}
+
+enum MachineType {
+  fdm_3d
+  resin_3d
+  laser
+  cnc_wood
+}
+
+enum OrderStatus {
+  draft
+  quoted
+  confirmed
+  in_progress
+  done
+  cancelled
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  name         String
+  role         UserRole   @default(operator)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  auditLogs    AuditLog[]
+
+  @@map("users")
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  email     String?
+  company   String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  orders    Order[]
+
+  @@map("customers")
+}
+
+model Machine {
+  id                 String              @id @default(cuid())
+  name               String              @unique
+  type               MachineType
+  hourlyRate         Float
+  depreciationPerH   Float               @default(0)
+  powerKw            Float               @default(0)
+  calendar           Json
+  isActive           Boolean             @default(true)
+  notes              String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  scheduleEntries    ScheduleEntry[]
+  maintenanceWindows MaintenanceWindow[]
+
+  @@map("machines")
+}
+
+model MaintenanceWindow {
+  id        String   @id @default(cuid())
+  machineId String
+  machine   Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  title     String
+  start     DateTime
+  end       DateTime
+  notes     String?
+  createdAt DateTime @default(now())
+
+  @@index([machineId, start])
+  @@map("maintenance_windows")
+}
+
+model Material {
+  id             String                  @id @default(cuid())
+  code           String                  @unique
+  name           String                  @unique
+  machineType    MachineType
+  color          String?
+  unit           String
+  pricePerUnit   Float
+  wastePct       Float                   @default(0.1)
+  stockQty       Float                   @default(0)
+  minStockQty    Float                   @default(0)
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  orderItems     OrderItem[]
+  templates      ProductTemplate[]
+  stockMovements MaterialStockMovement[]
+
+  @@map("materials")
+}
+
+model MaterialStockMovement {
+  id         String   @id @default(cuid())
+  materialId String
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  orderId    String?
+  order      Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  deltaQty   Float
+  reason     String
+  createdAt  DateTime @default(now())
+
+  @@index([materialId, createdAt])
+  @@map("material_stock_movements")
+}
+
+model ProductTemplate {
+  id           String      @id @default(cuid())
+  name         String      @unique
+  machineType  MachineType
+  materialId   String
+  material     Material    @relation(fields: [materialId], references: [id])
+  usage        Float
+  runTimeH     Float
+  prepH        Float       @default(0.25)
+  postProcessH Float       @default(0.25)
+  color        String?
+  tool         String?
+  defaultQty   Int         @default(1)
+  notes        String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@map("product_templates")
+}
+
+model Order {
+  id             String                  @id @default(cuid())
+  code           String                  @unique
+  customerId     String
+  customer       Customer                @relation(fields: [customerId], references: [id])
+  deadline       DateTime
+  priority       Int                     @default(1)
+  status         OrderStatus             @default(draft)
+  isRush         Boolean                 @default(false)
+  rushSurcharge  Float                   @default(0)
+  totalCost      Float                   @default(0)
+  totalPrice     Float                   @default(0)
+  notes          String?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  items          OrderItem[]
+  stockMovements MaterialStockMovement[]
+
+  @@index([status])
+  @@index([deadline])
+  @@index([customerId])
+  @@map("orders")
+}
+
+model OrderItem {
+  id               String          @id @default(cuid())
+  orderId          String
+  order            Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  title            String
+  machineType      MachineType
+  materialId       String
+  material         Material        @relation(fields: [materialId], references: [id])
+  color            String?
+  tool             String?
+  usage            Float
+  runTimeH         Float
+  prepH            Float           @default(0)
+  postProcessH     Float           @default(0)
+  qty              Int
+  batchShare       Int             @default(1)
+  setupMin         Float           @default(0)
+  cost             Float           @default(0)
+  price            Float           @default(0)
+  pricingBreakdown Json?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  scheduleEntries  ScheduleEntry[]
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+model SetupRule {
+  id           String      @id @default(cuid())
+  machineType  MachineType
+  fromMaterial String
+  toMaterial   String
+  minutes      Int
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([machineType, fromMaterial, toMaterial])
+  @@map("setup_rules")
+}
+
+model ScheduleEntry {
+  id            String    @id @default(cuid())
+  orderItemId   String
+  orderItem     OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  machineId     String
+  machine       Machine   @relation(fields: [machineId], references: [id])
+  batchIndex    Int       @default(1)
+  batchQty      Int?
+  setupStart    DateTime
+  setupEnd      DateTime
+  start         DateTime
+  end           DateTime
+  setupMin      Int
+  processingMin Int
+  latenessMin   Int       @default(0)
+  tardinessMin  Int       @default(0)
+  locked        Boolean   @default(false)
+  ruleUsed      String    @default("ATCS")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([machineId, start])
+  @@index([orderItemId])
+  @@map("schedule_entries")
+}
+
+model Setting {
+  id                    String   @id @default("default")
+  workshopName          String   @default("Локальна майстерня")
+  laborRate             Float    @default(300)
+  electricityRatePerKwh Float    @default(4.32)
+  overheadPct           Float    @default(0.15)
+  marginPct             Float    @default(0.3)
+  rushSurcharge         Float    @default(0.25)
+  taxPct                Float    @default(0.05)
+  failureRates          Json
+  volumeDiscounts       Json
+  setupDefaults         Json
+  atcsK1                Float    @default(2.0)
+  atcsK2                Float    @default(0.5)
+  updatedAt             DateTime @updatedAt
+
+  @@map("settings")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String
+  entityId  String?
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_log")
+}

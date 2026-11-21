@@ -17,8 +17,12 @@
     "test": "npm run test --workspace=server && npm run test --workspace=client",
     "build": "npm run build --workspace=client",
     "start": "npm run start --workspace=server",
-    "db:migrate": "echo db:migrate will be configured in Phase 2",
-    "db:seed": "echo db:seed will be configured in Phase 2",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:generate": "prisma generate --schema=server/prisma/schema.prisma",
+    "db:migrate": "prisma migrate dev --schema=server/prisma/schema.prisma",
+    "db:migrate:deploy": "prisma migrate deploy --schema=server/prisma/schema.prisma",
+    "db:seed": "node server/prisma/seed.js",
     "report": "echo report builder will be configured in Phase 9"
   },
   "devDependencies": {

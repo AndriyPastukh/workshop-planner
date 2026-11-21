@@ -106,6 +106,15 @@ describe('setup domain', () => {
       setupTime({ material: 'oak' }, { material: 'pine' }, unknownMachine, FDM_RULES)
     ).toBe(0);
     expect(setupTime(null, { material: 'PLA' }, { type: 'fdm_3d' }, DEFAULT_SETUP_RULES)).toBe(25);
+    expect(setupTime(null, { material: 'RESIN_STD' }, { type: 'resin_3d' }, DEFAULT_SETUP_RULES)).toBe(22);
+    expect(
+      setupTime(
+        { material: 'RESIN_STD' },
+        { material: 'RESIN_TOUGH' },
+        { type: 'resin_3d' },
+        DEFAULT_SETUP_RULES
+      )
+    ).toBe(37);
 
     // Numeric scalar rule groups and direct array matrix input
     const scalarRules = {

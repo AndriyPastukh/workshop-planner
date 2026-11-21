@@ -1,26 +1,31 @@
 export const DEFAULT_SETUP_RULES = {
   baseMinutes: {
     fdm_3d: 10,
+    resin_3d: 12,
     laser: 5,
     cnc_wood: 15,
   },
   warmupMinutes: {
     fdm_3d: 15,
+    resin_3d: 10,
     laser: 5,
     cnc_wood: 10,
   },
   colorChangeMinutes: {
     fdm_3d: 8,
+    resin_3d: 10,
     laser: 0,
     cnc_wood: 5,
   },
   toolChangeMinutes: {
     fdm_3d: 20,
+    resin_3d: 15,
     laser: 10,
     cnc_wood: 15,
   },
   defaultMaterialChangeMinutes: {
     fdm_3d: 15,
+    resin_3d: 25,
     laser: 5,
     cnc_wood: 10,
   },
@@ -29,6 +34,10 @@ export const DEFAULT_SETUP_RULES = {
       PLA: { PETG: 15, ABS: 60 },
       PETG: { PLA: 20, ABS: 30 },
       ABS: { PLA: 60, PETG: 35 },
+    },
+    resin_3d: {
+      RESIN_STD: { RESIN_TOUGH: 25 },
+      RESIN_TOUGH: { RESIN_STD: 30 },
     },
     laser: {
       plywood_3mm: { acrylic_3mm: 8 },
